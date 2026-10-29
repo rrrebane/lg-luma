@@ -5,6 +5,7 @@ mod app_artwork;
 #[path = "app-subscription.rs"]
 mod app_subscription;
 mod branding;
+mod calendar;
 mod companion;
 mod damage;
 mod diagnostics;
