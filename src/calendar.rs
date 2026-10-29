@@ -47,7 +47,8 @@ impl Feed {
         let mut found = Vec::new();
         for event in self.events.iter().filter(|e| !e.cancelled) {
             for (start, end) in event.instances_near(day) {
-                if event.rule.is_some() && self.replaced.contains(&(event.uid.clone(), start.key())) {
+                if event.rule.is_some() && self.replaced.contains(&(event.uid.clone(), start.key()))
+                {
                     continue;
                 }
                 if event.exdates.iter().any(|x| x.key() == start.key()) {
@@ -86,7 +87,8 @@ pub fn events_on(ics: &str, day: Date) -> Vec<Occurrence> {
 const HOUR: Duration = Duration::hours(1);
 
 fn last_sunday(year: i32, month: Month) -> Date {
-    let mut day = Date::from_calendar_date(year, month, 31).expect("March and October have 31 days");
+    let mut day =
+        Date::from_calendar_date(year, month, 31).expect("March and October have 31 days");
     while day.weekday() != Weekday::Sunday {
         day = day.previous_day().expect("within range");
     }
@@ -96,13 +98,23 @@ fn last_sunday(year: i32, month: Month) -> Date {
 /// Summer time runs from 01:00 UTC on the last Sunday of March to 01:00 UTC on the last Sunday of October.
 fn is_summer_time_utc(utc: PrimitiveDateTime) -> bool {
     let year = utc.year();
-    let start = PrimitiveDateTime::new(last_sunday(year, Month::March), Time::from_hms(1, 0, 0).unwrap());
-    let end = PrimitiveDateTime::new(last_sunday(year, Month::October), Time::from_hms(1, 0, 0).unwrap());
+    let start = PrimitiveDateTime::new(
+        last_sunday(year, Month::March),
+        Time::from_hms(1, 0, 0).unwrap(),
+    );
+    let end = PrimitiveDateTime::new(
+        last_sunday(year, Month::October),
+        Time::from_hms(1, 0, 0).unwrap(),
+    );
     utc >= start && utc < end
 }
 
 pub fn utc_to_local(utc: PrimitiveDateTime) -> PrimitiveDateTime {
-    utc + if is_summer_time_utc(utc) { 3 * HOUR } else { 2 * HOUR }
+    utc + if is_summer_time_utc(utc) {
+        3 * HOUR
+    } else {
+        2 * HOUR
+    }
 }
 
 /// An ambiguous wall time (the repeated hour in autumn) takes its first occurrence; a time
@@ -197,11 +209,11 @@ fn unfold(text: &str) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for raw in text.split('\n') {
         let line = raw.strip_suffix('\r').unwrap_or(raw);
-        if let Some(rest) = line.strip_prefix([' ', '\t']) {
-            if let Some(last) = lines.last_mut() {
-                last.push_str(rest);
-                continue;
-            }
+        if let Some(rest) = line.strip_prefix([' ', '\t'])
+            && let Some(last) = lines.last_mut()
+        {
+            last.push_str(rest);
+            continue;
         }
         lines.push(line.to_string());
     }
@@ -291,7 +303,11 @@ fn parse_when(property: &Property) -> Option<When> {
     let minute: u8 = digits[2..4].parse().ok()?;
     let second: u8 = digits.get(4..6).and_then(|s| s.parse().ok()).unwrap_or(0);
     let moment = PrimitiveDateTime::new(date, Time::from_hms(hour, minute, second).ok()?);
-    Some(if utc { When::Utc(moment) } else { When::Local(moment) })
+    Some(if utc {
+        When::Utc(moment)
+    } else {
+        When::Local(moment)
+    })
 }
 
 fn parse_weekday(text: &str) -> Option<Weekday> {
@@ -320,7 +336,9 @@ fn parse_rule(value: &str) -> Option<Rule> {
     };
     let mut have_freq = false;
     for part in value.split(';') {
-        let Some((key, val)) = part.split_once('=') else { continue };
+        let Some((key, val)) = part.split_once('=') else {
+            continue;
+        };
         match key.to_ascii_uppercase().as_str() {
             "FREQ" => {
                 rule.freq = match val.to_ascii_uppercase().as_str() {
@@ -348,12 +366,26 @@ fn parse_rule(value: &str) -> Option<Rule> {
                         continue;
                     }
                     let (ordinal, day) = item.split_at(item.len() - 2);
-                    let ordinal = if ordinal.is_empty() { 0 } else { ordinal.parse().ok()? };
+                    let ordinal = if ordinal.is_empty() {
+                        0
+                    } else {
+                        ordinal.parse().ok()?
+                    };
                     rule.by_day.push((ordinal, parse_weekday(day)?));
                 }
             }
-            "BYMONTHDAY" => rule.by_month_day = val.split(',').filter_map(|n| n.trim().parse().ok()).collect(),
-            "BYMONTH" => rule.by_month = val.split(',').filter_map(|n| n.trim().parse().ok()).collect(),
+            "BYMONTHDAY" => {
+                rule.by_month_day = val
+                    .split(',')
+                    .filter_map(|n| n.trim().parse().ok())
+                    .collect()
+            }
+            "BYMONTH" => {
+                rule.by_month = val
+                    .split(',')
+                    .filter_map(|n| n.trim().parse().ok())
+                    .collect()
+            }
             "WKST" => rule.week_start = parse_weekday(val)?,
             _ => {}
         }
@@ -369,10 +401,10 @@ fn parse(ics: &str) -> Vec<Event> {
         if line.eq_ignore_ascii_case("BEGIN:VEVENT") {
             current = Some(Vec::new());
         } else if line.eq_ignore_ascii_case("END:VEVENT") {
-            if let Some(properties) = current.take() {
-                if let Some(event) = build_event(properties) {
-                    events.push(event);
-                }
+            if let Some(properties) = current.take()
+                && let Some(event) = build_event(properties)
+            {
+                events.push(event);
             }
         } else if let Some(properties) = current.as_mut() {
             // Alarms and other nested components carry their own properties; none we need.
@@ -470,7 +502,10 @@ fn month_day_matches(date: Date, wanted: i8) -> bool {
 }
 
 fn week_start_of(date: Date, week_start: Weekday) -> Date {
-    let back = (i64::from(date.weekday().number_days_from_monday()) - i64::from(week_start.number_days_from_monday()) + 7) % 7;
+    let back = (i64::from(date.weekday().number_days_from_monday())
+        - i64::from(week_start.number_days_from_monday())
+        + 7)
+        % 7;
     add_days(date, -back)
 }
 
@@ -487,21 +522,38 @@ impl Rule {
         // For monthly and yearly rules: the day of the month, which defaults to the start's.
         let day_ok = || -> bool {
             if !self.by_month_day.is_empty() {
-                return self.by_month_day.iter().any(|d| month_day_matches(date, *d));
+                return self
+                    .by_month_day
+                    .iter()
+                    .any(|d| month_day_matches(date, *d));
             }
             if !self.by_day.is_empty() {
-                return self.by_day.iter().any(|(n, wd)| nth_weekday_matches(date, *n, *wd));
+                return self
+                    .by_day
+                    .iter()
+                    .any(|(n, wd)| nth_weekday_matches(date, *n, *wd));
             }
             date.day() == start.day()
         };
         match self.freq {
             Freq::Daily => {
                 days_between(start, date) % self.interval == 0
-                    && (self.by_day.is_empty() || self.by_day.iter().any(|(n, wd)| nth_weekday_matches(date, *n, *wd)))
-                    && (self.by_month_day.is_empty() || self.by_month_day.iter().any(|d| month_day_matches(date, *d)))
+                    && (self.by_day.is_empty()
+                        || self
+                            .by_day
+                            .iter()
+                            .any(|(n, wd)| nth_weekday_matches(date, *n, *wd)))
+                    && (self.by_month_day.is_empty()
+                        || self
+                            .by_month_day
+                            .iter()
+                            .any(|d| month_day_matches(date, *d)))
             }
             Freq::Weekly => {
-                let weeks = days_between(week_start_of(start, self.week_start), week_start_of(date, self.week_start)) / 7;
+                let weeks = days_between(
+                    week_start_of(start, self.week_start),
+                    week_start_of(date, self.week_start),
+                ) / 7;
                 let weekday_ok = if self.by_day.is_empty() {
                     date.weekday() == start.weekday()
                 } else {
@@ -510,7 +562,9 @@ impl Rule {
                 weeks % self.interval == 0 && weekday_ok
             }
             Freq::Monthly => {
-                let months = i64::from(date.year() - start.year()) * 12 + i64::from(u8::from(date.month())) - i64::from(u8::from(start.month()));
+                let months = i64::from(date.year() - start.year()) * 12
+                    + i64::from(u8::from(date.month()))
+                    - i64::from(u8::from(start.month()));
                 months % self.interval == 0 && day_ok()
             }
             Freq::Yearly => {
@@ -522,10 +576,10 @@ impl Rule {
 
     /// COUNT and UNTIL: is the instance on `date` still part of the series?
     fn allows(&self, start: Date, date: Date) -> bool {
-        if let Some(until) = self.until {
-            if date > until.date() {
-                return false;
-            }
+        if let Some(until) = self.until
+            && date > until.date()
+        {
+            return false;
         }
         if let Some(count) = self.count {
             let mut seen = 0u32;
@@ -598,7 +652,11 @@ impl Event {
 
     /// The part of an instance that falls on `day`, if any.
     fn occurrence_on(&self, day: Date, start: When, end: When) -> Option<Occurrence> {
-        let summary = if self.summary.is_empty() { "(no title)".to_string() } else { self.summary.clone() };
+        let summary = if self.summary.is_empty() {
+            "(no title)".to_string()
+        } else {
+            self.summary.clone()
+        };
         if let (When::Day(s), When::Day(e)) = (start, end) {
             // An all-day event covers its start date up to, not including, its end date.
             return (s <= day && day < e).then_some(Occurrence {
@@ -619,7 +677,11 @@ impl Event {
         let from_midnight = |t: PrimitiveDateTime| (t - midnight).whole_minutes() as i32;
         let (from, to) = (from_midnight(s), from_midnight(e));
         // An instant event (no end) belongs to the day it starts on.
-        let overlaps = if to > from { from < 1440 && to > 0 } else { (0..1440).contains(&from) };
+        let overlaps = if to > from {
+            from < 1440 && to > 0
+        } else {
+            (0..1440).contains(&from)
+        };
         overlaps.then_some(Occurrence {
             all_day: false,
             start: from,

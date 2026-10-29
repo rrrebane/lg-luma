@@ -75,7 +75,10 @@ pub fn load_config(path: &Path) -> Config {
 pub fn estonian_now(now: OffsetDateTime) -> (Date, i32) {
     let utc = now.to_offset(UtcOffset::UTC);
     let local = calendar::utc_to_local(PrimitiveDateTime::new(utc.date(), utc.time()));
-    (local.date(), i32::from(local.hour()) * 60 + i32::from(local.minute()))
+    (
+        local.date(),
+        i32::from(local.hour()) * 60 + i32::from(local.minute()),
+    )
 }
 
 /// "07:05" for minutes after midnight; times past midnight wrap round.
@@ -85,8 +88,15 @@ pub fn clock(minutes: i32) -> String {
 }
 
 pub fn weekday_name(date: Date) -> &'static str {
-    ["esmaspäev", "teisipäev", "kolmapäev", "neljapäev", "reede", "laupäev", "pühapäev"]
-        [date.weekday().number_days_from_monday() as usize]
+    [
+        "esmaspäev",
+        "teisipäev",
+        "kolmapäev",
+        "neljapäev",
+        "reede",
+        "laupäev",
+        "pühapäev",
+    ][date.weekday().number_days_from_monday() as usize]
 }
 
 // ---------------------------------------------------------------------------------------
@@ -162,7 +172,11 @@ pub fn parse_timetable(value: &Value) -> Result<Timetable, String> {
                     depart: minutes(item, "d")?,
                     vaike: minutes(item, "w"),
                     tallinn: minutes(item, "t"),
-                    line: item.get("l").and_then(Value::as_str).unwrap_or("").to_owned(),
+                    line: item
+                        .get("l")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned(),
                 })
             })
             .collect();
@@ -189,7 +203,10 @@ impl Timetable {
             for departure in departures {
                 let abs = departure.depart + offset as i32 * 1440;
                 if abs >= now_minutes {
-                    found.push(Upcoming { abs, departure: departure.clone() });
+                    found.push(Upcoming {
+                        abs,
+                        departure: departure.clone(),
+                    });
                 }
             }
         }
@@ -270,17 +287,24 @@ impl Widgets {
         if !home_visible {
             return commands;
         }
-        if let Some(url) = self.config.calendar_url() {
-            if !self.calendar_pending && now >= self.next_calendar {
-                self.calendar_pending = true;
-                commands.push(Command::Calendar { url: url.to_owned(), today });
-            }
+        if let Some(url) = self.config.calendar_url()
+            && !self.calendar_pending
+            && now >= self.next_calendar
+        {
+            self.calendar_pending = true;
+            commands.push(Command::Calendar {
+                url: url.to_owned(),
+                today,
+            });
         }
-        if let Some(url) = self.config.timetable_url() {
-            if !self.timetable_pending && now >= self.next_timetable {
-                self.timetable_pending = true;
-                commands.push(Command::Timetable { url: url.to_owned() });
-            }
+        if let Some(url) = self.config.timetable_url()
+            && !self.timetable_pending
+            && now >= self.next_timetable
+        {
+            self.timetable_pending = true;
+            commands.push(Command::Timetable {
+                url: url.to_owned(),
+            });
         }
         commands
     }

@@ -36,12 +36,12 @@ mod weather;
 #[path = "weather-service.rs"]
 mod weather_service;
 mod webhook;
-mod widgets;
-#[path = "widgets-service.rs"]
-mod widgets_service;
 #[cfg(all(feature = "webos", any(target_os = "linux", test)))]
 #[path = "webos-compat.rs"]
 mod webos_compat;
+mod widgets;
+#[path = "widgets-service.rs"]
+mod widgets_service;
 
 #[cfg(test)]
 mod tests;
@@ -504,8 +504,12 @@ fn widgets_tick(
     }
     while let Ok(response) = service.receiver.try_recv() {
         match response {
-            widgets_service::Response::Calendar(result) => state.widgets.accept_calendar(result, seconds),
-            widgets_service::Response::Timetable(result) => state.widgets.accept_timetable(result, seconds),
+            widgets_service::Response::Calendar(result) => {
+                state.widgets.accept_calendar(result, seconds)
+            }
+            widgets_service::Response::Timetable(result) => {
+                state.widgets.accept_timetable(result, seconds)
+            }
         }
         state.dirty = true;
     }
@@ -1661,7 +1665,13 @@ fn run() -> Result<(), String> {
             platform.send(Request::Refresh);
         }
         weather_tick(&mut state, &weather_service, visible);
-        widgets_tick(&mut state, &widgets_service, &widgets_config_path, visible, now);
+        widgets_tick(
+            &mut state,
+            &widgets_service,
+            &widgets_config_path,
+            visible,
+            now,
+        );
         // SDL-webOS disables text input when its own panel is dismissed, even
         // if it did not forward a Back/Return key to the application.
         if text_active

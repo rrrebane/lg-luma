@@ -7,7 +7,12 @@ fn date(year: i32, month: u8, day: u8) -> Date {
 }
 
 fn train(depart: i32, vaike: Option<i32>, tallinn: Option<i32>, line: &str) -> Departure {
-    Departure { depart, vaike, tallinn, line: line.into() }
+    Departure {
+        depart,
+        vaike,
+        tallinn,
+        line: line.into(),
+    }
 }
 
 fn table() -> Timetable {
@@ -24,7 +29,10 @@ fn table() -> Timetable {
             ),
             (
                 date(2026, 10, 30),
-                vec![train(369, Some(403), Some(409), "R21"), train(404, None, Some(444), "R22")],
+                vec![
+                    train(369, Some(403), Some(409), "R21"),
+                    train(404, None, Some(444), "R22"),
+                ],
             ),
         ],
     }
@@ -115,7 +123,8 @@ fn estonian_time_does_not_depend_on_the_tvs_own_zone() {
     let shifted = utc.to_offset(UtcOffset::from_hms(-5, 0, 0).unwrap());
     assert_eq!(estonian_now(shifted), (date(2026, 10, 30), 30));
     // In summer it is UTC+3.
-    let summer = OffsetDateTime::new_utc(date(2026, 7, 1), time::Time::from_hms(21, 30, 0).unwrap());
+    let summer =
+        OffsetDateTime::new_utc(date(2026, 7, 1), time::Time::from_hms(21, 30, 0).unwrap());
     assert_eq!(estonian_now(summer), (date(2026, 7, 2), 30));
 }
 
@@ -125,21 +134,44 @@ fn only_https_addresses_are_accepted() {
         calendar_url: Some("  https://example.test/secret.ics ".into()),
         ..Config::default()
     };
-    assert_eq!(config.calendar_url(), Some("https://example.test/secret.ics"));
-    for bad in ["http://example.test/a.ics", "file:///etc/passwd", "", "example.test"] {
-        let config = Config { calendar_url: Some(bad.into()), ..Config::default() };
+    assert_eq!(
+        config.calendar_url(),
+        Some("https://example.test/secret.ics")
+    );
+    for bad in [
+        "http://example.test/a.ics",
+        "file:///etc/passwd",
+        "",
+        "example.test",
+    ] {
+        let config = Config {
+            calendar_url: Some(bad.into()),
+            ..Config::default()
+        };
         assert_eq!(config.calendar_url(), None, "{bad}");
     }
 }
 
 #[test]
 fn the_train_widget_defaults_on_and_can_be_turned_off_or_redirected() {
-    assert_eq!(Config::default().timetable_url(), Some(DEFAULT_TIMETABLE_URL));
-    let off = Config { show_trains: Some(false), ..Config::default() };
+    assert_eq!(
+        Config::default().timetable_url(),
+        Some(DEFAULT_TIMETABLE_URL)
+    );
+    let off = Config {
+        show_trains: Some(false),
+        ..Config::default()
+    };
     assert_eq!(off.timetable_url(), None);
-    let custom = Config { timetable_url: Some("https://example.test/t.json".into()), ..Config::default() };
+    let custom = Config {
+        timetable_url: Some("https://example.test/t.json".into()),
+        ..Config::default()
+    };
     assert_eq!(custom.timetable_url(), Some("https://example.test/t.json"));
-    let insecure = Config { timetable_url: Some("http://example.test/t.json".into()), ..Config::default() };
+    let insecure = Config {
+        timetable_url: Some("http://example.test/t.json".into()),
+        ..Config::default()
+    };
     assert_eq!(insecure.timetable_url(), None);
 }
 
@@ -151,8 +183,15 @@ fn config_file_is_read_leniently() {
     assert_eq!(load_config(&path), Config::default()); // missing
     std::fs::write(&path, b"{ not json").unwrap();
     assert_eq!(load_config(&path), Config::default()); // broken
-    std::fs::write(&path, br#"{"calendar_url": "https://example.test/a.ics", "unknown": 1}"#).unwrap();
-    assert_eq!(load_config(&path).calendar_url(), Some("https://example.test/a.ics"));
+    std::fs::write(
+        &path,
+        br#"{"calendar_url": "https://example.test/a.ics", "unknown": 1}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        load_config(&path).calendar_url(),
+        Some("https://example.test/a.ics")
+    );
     assert_eq!(
         config_path(Path::new("/x/luma-native/preferences.json")),
         PathBuf::from("/x/luma-native/widgets.json")
@@ -217,12 +256,21 @@ fn without_a_calendar_address_only_the_trains_are_fetched() {
 fn changing_the_calendar_address_forgets_the_old_events() {
     let mut widgets = configured();
     widgets.sync(true, 1000, date(2026, 10, 29));
-    widgets.accept_calendar(Ok(vec![CalendarDay { date: date(2026, 10, 29), events: vec![] }]), 1001);
+    widgets.accept_calendar(
+        Ok(vec![CalendarDay {
+            date: date(2026, 10, 29),
+            events: vec![],
+        }]),
+        1001,
+    );
     assert!(widgets.events_today(date(2026, 10, 29)).is_some());
     let same = widgets.config.clone();
     assert!(!widgets.set_config(same)); // unchanged: nothing happens
     assert!(widgets.events_today(date(2026, 10, 29)).is_some());
-    widgets.set_config(Config { calendar_url: Some("https://example.test/b.ics".into()), ..Config::default() });
+    widgets.set_config(Config {
+        calendar_url: Some("https://example.test/b.ics".into()),
+        ..Config::default()
+    });
     assert!(widgets.events_today(date(2026, 10, 29)).is_none());
     // The calendar is fetched at once; the trains are still pending from the first sync.
     let commands = widgets.sync(true, 1002, date(2026, 10, 29));
@@ -243,8 +291,14 @@ fn events_are_only_shown_for_a_day_the_feed_covers() {
     };
     widgets.accept_calendar(
         Ok(vec![
-            CalendarDay { date: date(2026, 10, 29), events: vec![event.clone()] },
-            CalendarDay { date: date(2026, 10, 30), events: vec![] },
+            CalendarDay {
+                date: date(2026, 10, 29),
+                events: vec![event.clone()],
+            },
+            CalendarDay {
+                date: date(2026, 10, 30),
+                events: vec![],
+            },
         ]),
         1000,
     );

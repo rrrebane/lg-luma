@@ -8,12 +8,7 @@ use crate::{
     calendar,
     widgets::{CalendarDay, Command, Timetable, parse_timetable},
 };
-use std::{
-    io::Read,
-    sync::mpsc,
-    thread,
-    time::Duration,
-};
+use std::{io::Read, sync::mpsc, thread, time::Duration};
 use time::Date;
 
 const CALENDAR_LIMIT: usize = 8 * 1024 * 1024;
@@ -48,7 +43,9 @@ impl Service {
                     Command::Calendar { url, today } => {
                         Response::Calendar(fetch_calendar(&agent, &url, today))
                     }
-                    Command::Timetable { url } => Response::Timetable(fetch_timetable(&agent, &url)),
+                    Command::Timetable { url } => {
+                        Response::Timetable(fetch_timetable(&agent, &url))
+                    }
                 };
                 if responses.send(response).is_err() {
                     break;
@@ -63,7 +60,12 @@ impl Service {
     }
 }
 
-fn download(agent: &ureq::Agent, url: &str, accept: &str, limit: usize) -> Result<Vec<u8>, &'static str> {
+fn download(
+    agent: &ureq::Agent,
+    url: &str,
+    accept: &str,
+    limit: usize,
+) -> Result<Vec<u8>, &'static str> {
     // Every failure maps to a fixed message; never format the error, which may carry the URL.
     let mut response = agent
         .get(url)
@@ -92,7 +94,10 @@ fn fetch_calendar(agent: &ureq::Agent, url: &str, today: Date) -> Result<Vec<Cal
     let feed = calendar::parse_feed(&String::from_utf8_lossy(&bytes));
     Ok((0..DAYS_AHEAD)
         .filter_map(|offset| today.checked_add(time::Duration::days(offset)))
-        .map(|date| CalendarDay { date, events: feed.events_on(date) })
+        .map(|date| CalendarDay {
+            date,
+            events: feed.events_on(date),
+        })
         .collect())
 }
 

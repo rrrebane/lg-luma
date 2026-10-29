@@ -6,11 +6,17 @@ fn date(year: i32, month: u8, day: u8) -> Date {
 }
 
 fn local(year: i32, month: u8, day: u8, hour: u8, minute: u8) -> PrimitiveDateTime {
-    PrimitiveDateTime::new(date(year, month, day), Time::from_hms(hour, minute, 0).unwrap())
+    PrimitiveDateTime::new(
+        date(year, month, day),
+        Time::from_hms(hour, minute, 0).unwrap(),
+    )
 }
 
 fn feed(events: &str) -> String {
-    format!("BEGIN:VCALENDAR\r\nVERSION:2.0\r\n{}\r\nEND:VCALENDAR\r\n", events.trim().replace('\n', "\r\n"))
+    format!(
+        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n{}\r\nEND:VCALENDAR\r\n",
+        events.trim().replace('\n', "\r\n")
+    )
 }
 
 fn on(events: &str, day: Date) -> Vec<Occurrence> {
@@ -251,15 +257,36 @@ fn local_recurrence_keeps_its_wall_time_across_the_summer_time_change() {
 #[test]
 fn estonian_time_changes_on_the_last_sunday_of_march_and_october() {
     // Spring: 01:00 UTC on 2026-03-29 jumps from 02:59 to 04:00 local.
-    assert_eq!(utc_to_local(local(2026, 3, 29, 0, 59)), local(2026, 3, 29, 2, 59));
-    assert_eq!(utc_to_local(local(2026, 3, 29, 1, 0)), local(2026, 3, 29, 4, 0));
+    assert_eq!(
+        utc_to_local(local(2026, 3, 29, 0, 59)),
+        local(2026, 3, 29, 2, 59)
+    );
+    assert_eq!(
+        utc_to_local(local(2026, 3, 29, 1, 0)),
+        local(2026, 3, 29, 4, 0)
+    );
     // Autumn: 01:00 UTC on 2026-10-25 goes back from 03:59 to 03:00 local.
-    assert_eq!(utc_to_local(local(2026, 10, 25, 0, 59)), local(2026, 10, 25, 3, 59));
-    assert_eq!(utc_to_local(local(2026, 10, 25, 1, 0)), local(2026, 10, 25, 3, 0));
+    assert_eq!(
+        utc_to_local(local(2026, 10, 25, 0, 59)),
+        local(2026, 10, 25, 3, 59)
+    );
+    assert_eq!(
+        utc_to_local(local(2026, 10, 25, 1, 0)),
+        local(2026, 10, 25, 3, 0)
+    );
     // The repeated hour takes its first occurrence; ordinary times convert plainly.
-    assert_eq!(local_to_utc(local(2026, 10, 25, 3, 30)), local(2026, 10, 25, 0, 30));
-    assert_eq!(local_to_utc(local(2026, 10, 29, 12, 0)), local(2026, 10, 29, 10, 0));
-    assert_eq!(local_to_utc(local(2026, 7, 1, 12, 0)), local(2026, 7, 1, 9, 0));
+    assert_eq!(
+        local_to_utc(local(2026, 10, 25, 3, 30)),
+        local(2026, 10, 25, 0, 30)
+    );
+    assert_eq!(
+        local_to_utc(local(2026, 10, 29, 12, 0)),
+        local(2026, 10, 29, 10, 0)
+    );
+    assert_eq!(
+        local_to_utc(local(2026, 7, 1, 12, 0)),
+        local(2026, 7, 1, 9, 0)
+    );
 }
 
 #[test]
@@ -281,7 +308,10 @@ fn all_day_events_come_first_then_by_start() {
     let events = "BEGIN:VEVENT\nUID:1\nSUMMARY:Evening\nDTSTART;TZID=Europe/Tallinn:20261029T190000\nEND:VEVENT\n\
 BEGIN:VEVENT\nUID:2\nSUMMARY:Morning\nDTSTART;TZID=Europe/Tallinn:20261029T080000\nEND:VEVENT\n\
 BEGIN:VEVENT\nUID:3\nSUMMARY:Holiday\nDTSTART;VALUE=DATE:20261029\nEND:VEVENT";
-    assert_eq!(summaries(&on(events, date(2026, 10, 29))), vec!["Holiday", "Morning", "Evening"]);
+    assert_eq!(
+        summaries(&on(events, date(2026, 10, 29))),
+        vec!["Holiday", "Morning", "Evening"]
+    );
 }
 
 #[test]
@@ -289,10 +319,29 @@ fn garbage_and_truncated_input_do_not_panic() {
     assert!(events_on("", date(2026, 10, 29)).is_empty());
     assert!(events_on("this is not a calendar", date(2026, 10, 29)).is_empty());
     assert!(events_on("BEGIN:VEVENT\nDTSTART:2026", date(2026, 10, 29)).is_empty());
-    assert!(on("BEGIN:VEVENT\nUID:a\nDTSTART:notadate\nEND:VEVENT", date(2026, 10, 29)).is_empty());
-    assert!(on("BEGIN:VEVENT\nUID:a\nDTSTART;VALUE=DATE:20261029\nRRULE:FREQ=SOMETIMES\nEND:VEVENT", date(2026, 10, 29)).len() <= 1);
+    assert!(
+        on(
+            "BEGIN:VEVENT\nUID:a\nDTSTART:notadate\nEND:VEVENT",
+            date(2026, 10, 29)
+        )
+        .is_empty()
+    );
+    assert!(
+        on(
+            "BEGIN:VEVENT\nUID:a\nDTSTART;VALUE=DATE:20261029\nRRULE:FREQ=SOMETIMES\nEND:VEVENT",
+            date(2026, 10, 29)
+        )
+        .len()
+            <= 1
+    );
     // Non-ASCII junk in a date must not split a character in half.
-    assert!(on("BEGIN:VEVENT\nUID:a\nDTSTART:ääääääääääääää\nEND:VEVENT", date(2026, 10, 29)).is_empty());
+    assert!(
+        on(
+            "BEGIN:VEVENT\nUID:a\nDTSTART:ääääääääääääää\nEND:VEVENT",
+            date(2026, 10, 29)
+        )
+        .is_empty()
+    );
 }
 
 #[test]
@@ -317,14 +366,24 @@ fn a_large_feed_is_handled() {
 #[test]
 #[ignore]
 fn real_feed_smoke_test() {
-    let Ok(path) = std::env::var("LUMA_TEST_ICS") else { return };
+    let Ok(path) = std::env::var("LUMA_TEST_ICS") else {
+        return;
+    };
     let text = std::fs::read_to_string(path).unwrap();
     let started = std::time::Instant::now();
     println!("parsed events: {}", parse_feed(&text).len());
-    let days: i64 = std::env::var("LUMA_TEST_DAYS").ok().and_then(|v| v.parse().ok()).unwrap_or(7);
-    let first = std::env::var("LUMA_TEST_FIRST").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let days: i64 = std::env::var("LUMA_TEST_DAYS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(7);
+    let first = std::env::var("LUMA_TEST_FIRST")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
     for offset in first..first + days {
-        let day = date(2026, 1, 1).checked_add(Duration::days(offset)).unwrap();
+        let day = date(2026, 1, 1)
+            .checked_add(Duration::days(offset))
+            .unwrap();
         let found = events_on(&text, day);
         let all_day = found.iter().filter(|o| o.all_day).count();
         println!("COUNT {day} {} {all_day}", found.len());

@@ -1,0 +1,73 @@
+name: Widgets IPK
+
+# Builds an installable package of this fork under its own app id, com.rebane.luma, so that it
+# installs beside the original Luma instead of replacing it. The rename is applied to the
+# checkout during the build only; the source stays compatible with upstream.
+#
+# Run it from the Actions tab (or `gh workflow run widgets-ipk.yml`) and download the artifact.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: widgets-ipk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build the widgets IPK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - uses: dtolnay/rust-toolchain@1.93.0
+        with:
+          targets: armv7-unknown-linux-gnueabi
+      - name: Install asset dependencies
+        run: |
+          apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          sudo apt-get "${apt_options[@]}" update
+          sudo apt-get "${apt_options[@]}" install -y --no-install-recommends \
+            libsdl2-dev pkg-config woff2 python3-fonttools
+      - name: Give this build its own app id and updater source
+        run: |
+          # Everything that names the app: the manifest, the runtime id, the packaging check and
+          # the scripts shipped inside the package (splash sync, takeover, autostart, updates).
+          sed -i 's/com\.ecklf\.luma/com.rebane.luma/g' \
+            appinfo.json src/platform.rs src/platform-install.rs tools/package.mjs \
+            tv/autostart.sh tv/home.cjs tv/self-update.sh tv/sync-splash.cjs \
+            tv/uninstall-app.cjs tv/install-directories.txt
+          sed -i 's/"title": "Luma"/"title": "Luma Widgets"/' appinfo.json
+          # Follow this fork's releases (there are none), never the original project's.
+          sed -i 's#github\.com/ecklf/lg-luma#github.com/rrrebane/lg-luma#g' src/update.rs
+          grep -n '"id"\|"title"' appinfo.json
+          git diff --stat
+      - name: Generate native assets
+        run: pnpm assets
+      - name: Set up the webOS SDK
+        run: pnpm sdk
+      - name: Cross-build and package
+        run: |
+          export WEBOS_NDK="$GITHUB_WORKSPACE/.build/toolchain/arm-webos-linux-gnueabi_sdk-buildroot"
+          pnpm build
+          node tools/package.mjs
+      - name: Upload the package
+        uses: actions/upload-artifact@v7
+        with:
+          name: luma-widgets
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+          path: |
+            dist/*.ipk
+            dist/sha256sums

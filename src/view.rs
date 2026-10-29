@@ -1377,7 +1377,12 @@ fn widget_card(out: &mut Scene, rect: Rect) {
 fn widget_note(out: &mut Scene, rect: Rect, message: &str) {
     out.text(
         message,
-        Rect::new(rect.x + WIDGET_PAD, rect.y + 120., rect.w - 2. * WIDGET_PAD, 28.),
+        Rect::new(
+            rect.x + WIDGET_PAD,
+            rect.y + 120.,
+            rect.w - 2. * WIDGET_PAD,
+            28.,
+        ),
         text(17.6, 400, 0.),
         c(0xe8e8e8, 0.48),
         true,
@@ -1505,7 +1510,12 @@ fn trains_widget(out: &mut Scene, state: &State, rect: Rect, today: Date, minute
     widget_card(out, rect);
     out.text(
         "Elron · Kohila",
-        Rect::new(rect.x + WIDGET_PAD, rect.y + 18., rect.w - 2. * WIDGET_PAD, 30.),
+        Rect::new(
+            rect.x + WIDGET_PAD,
+            rect.y + 18.,
+            rect.w - 2. * WIDGET_PAD,
+            30.,
+        ),
         text(22.4, 600, -0.03),
         WHITE,
         false,
@@ -1534,7 +1544,12 @@ fn trains_widget(out: &mut Scene, state: &State, rect: Rect, today: Date, minute
     };
     out.text(
         next_label,
-        Rect::new(rect.x + WIDGET_PAD, rect.y + 50., rect.w - 2. * WIDGET_PAD, 22.),
+        Rect::new(
+            rect.x + WIDGET_PAD,
+            rect.y + 50.,
+            rect.w - 2. * WIDGET_PAD,
+            22.,
+        ),
         text(15.2, 400, 0.),
         c(0x6cc4ff, 0.9),
         false,
@@ -4075,7 +4090,9 @@ mod tests {
             .draw
             .iter()
             .filter_map(|draw| match draw {
-                Draw::RoundedGradient(rect, ..) if rect.w == WIDGET_WIDTH && rect.h == WIDGET_HEIGHT => {
+                Draw::RoundedGradient(rect, ..)
+                    if rect.w == WIDGET_WIDTH && rect.h == WIDGET_HEIGHT =>
+                {
                     Some(*rect)
                 }
                 _ => None,
@@ -4118,7 +4135,13 @@ mod tests {
             calendar_url: Some("https://example.test/a.ics".into()),
             ..Config::default()
         });
-        state.widgets.accept_calendar(Ok(vec![CalendarDay { date: today, events }]), 0);
+        state.widgets.accept_calendar(
+            Ok(vec![CalendarDay {
+                date: today,
+                events,
+            }]),
+            0,
+        );
         let train = |depart: i32| Departure {
             depart,
             vaike: Some(depart + 34),
@@ -4127,7 +4150,16 @@ mod tests {
         };
         let table = Timetable {
             days: vec![
-                (today, vec![train(800), train(900), train(1300), train(1400), train(1430)]),
+                (
+                    today,
+                    vec![
+                        train(800),
+                        train(900),
+                        train(1300),
+                        train(1400),
+                        train(1430),
+                    ],
+                ),
                 (today.next_day().unwrap(), vec![train(369), train(404)]),
             ],
         };
@@ -4140,18 +4172,27 @@ mod tests {
         let cards = widget_cards(&scene);
         assert_eq!(cards.len(), 2);
         let (calendar, trains) = (cards[1], cards[0]);
-        assert!(calendar.x + calendar.w <= trains.x, "the cards must not overlap");
+        assert!(
+            calendar.x + calendar.w <= trains.x,
+            "the cards must not overlap"
+        );
         assert!(trains.x + trains.w <= WIDGET_RIGHT + 0.01);
 
         let mut labels = Vec::new();
         for draw in &scene.draw {
-            let Draw::Text(label, rect, ..) = draw else { continue };
+            let Draw::Text(label, rect, ..) = draw else {
+                continue;
+            };
             let in_band = rect.y >= WIDGET_TOP - 1. && rect.y <= WIDGET_TOP + WIDGET_HEIGHT;
             let in_cards = rect.x >= calendar.x - 1.;
             if !(in_band && in_cards && rect.x < WIDGET_RIGHT) {
                 continue;
             }
-            let card = if rect.x >= trains.x - 1. { trains } else { calendar };
+            let card = if rect.x >= trains.x - 1. {
+                trains
+            } else {
+                calendar
+            };
             assert!(
                 rect.x >= card.x && rect.x + rect.w <= card.x + card.w + 0.01,
                 "{label:?} sticks out of its card sideways"
@@ -4163,7 +4204,11 @@ mod tests {
             labels.push(label.clone());
         }
         // The long title is shortened, and what does not fit is counted.
-        assert!(labels.iter().any(|l| l.ends_with('…') && l.starts_with("A very long")));
+        assert!(
+            labels
+                .iter()
+                .any(|l| l.ends_with('…') && l.starts_with("A very long"))
+        );
         assert!(labels.iter().all(|l| l.chars().count() < 70));
         assert!(labels.contains(&"+6 veel".to_owned()), "{labels:?}");
         assert!(labels.contains(&"Name day".to_owned()));
@@ -4181,7 +4226,10 @@ mod tests {
         let assets = assets();
         let mut state = State::new(Preferences::default());
         state.set_inventory(demo_inventory(), None);
-        state.widgets.set_config(Config { show_trains: Some(false), ..Config::default() });
+        state.widgets.set_config(Config {
+            show_trains: Some(false),
+            ..Config::default()
+        });
         let mut scene = Scene::new();
         home(&mut scene, &state, &assets, OffsetDateTime::UNIX_EPOCH);
         assert!(widget_cards(&scene).is_empty());
@@ -4191,7 +4239,12 @@ mod tests {
         let mut scene = Scene::new();
         home(&mut scene, &state, &assets, OffsetDateTime::UNIX_EPOCH);
         assert_eq!(widget_cards(&scene).len(), 1);
-        assert!(scene.draw.iter().any(|d| matches!(d, Draw::Text(label, ..) if label == "Laen…")));
+        assert!(
+            scene
+                .draw
+                .iter()
+                .any(|d| matches!(d, Draw::Text(label, ..) if label == "Laen…"))
+        );
     }
 
     #[test]
