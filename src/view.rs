@@ -9,12 +9,13 @@ use crate::{
         Subpage, Target, TextField, WIDGETS_SECTION,
     },
     weather::{self, Unit},
+    widgets,
 };
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
-use time::OffsetDateTime;
+use time::{Date, OffsetDateTime};
 
 const MAIN_TOP: f32 = 108.8;
 const FACE_HEIGHT: f32 = 154.4;
@@ -1143,6 +1144,7 @@ fn home(out: &mut Scene, state: &State, assets: &Assets, now: OffsetDateTime) {
             top + date_height + greeting_height,
         );
     }
+    widgets_panel(out, state, assets, now);
     out.text(
         language.t("favorites"),
         Rect::new(84., 478.5 - s, 1000., 31.),
@@ -1334,6 +1336,278 @@ fn home(out: &mut Scene, state: &State, assets: &Assets, now: OffsetDateTime) {
             out.ring(rect, 18.4);
         }
         out.control(Target::Input(input.id.clone()), rect, true);
+    }
+}
+
+// The right-hand widgets on Home: today's calendar events and the next trains from Kohila. They
+// sit beside the greeting, above the favourites, and are not focusable.
+const WIDGET_TOP: f32 = 128.;
+const WIDGET_HEIGHT: f32 = 316.;
+const WIDGET_WIDTH: f32 = 352.;
+const WIDGET_RIGHT: f32 = 1836.;
+const WIDGET_GAP: f32 = 6.;
+const WIDGET_PAD: f32 = 22.;
+
+/// `value`, cut short with an ellipsis if it would be wider than `width`.
+fn ellipsize(assets: &Assets, value: &str, style: TextStyle, width: f32) -> String {
+    if assets.width(value, style) <= width {
+        return value.to_owned();
+    }
+    let mut chars: Vec<char> = value.chars().collect();
+    while chars.pop().is_some() {
+        let head: String = chars.iter().collect();
+        let candidate = format!("{}…", head.trim_end());
+        if assets.width(&candidate, style) <= width {
+            return candidate;
+        }
+    }
+    String::new()
+}
+
+fn widget_card(out: &mut Scene, rect: Rect) {
+    out.draw.push(Draw::RoundedGradient(
+        rect,
+        18.4,
+        c(0x20252b, 0.60),
+        c(0x171c22, 0.55),
+    ));
+    out.border(rect, 18.4, 1., c(0xffffff, 0.063));
+}
+
+fn widget_note(out: &mut Scene, rect: Rect, message: &str) {
+    out.text(
+        message,
+        Rect::new(rect.x + WIDGET_PAD, rect.y + 120., rect.w - 2. * WIDGET_PAD, 28.),
+        text(17.6, 400, 0.),
+        c(0xe8e8e8, 0.48),
+        true,
+    );
+}
+
+fn widgets_panel(out: &mut Scene, state: &State, assets: &Assets, now: OffsetDateTime) {
+    let widgets = &state.widgets;
+    if !widgets.calendar_enabled() && !widgets.trains_enabled() {
+        return;
+    }
+    let (today, minutes) = widgets::estonian_now(now);
+    let y = WIDGET_TOP - state.scroll;
+    let mut x = WIDGET_RIGHT - WIDGET_WIDTH;
+    if widgets.trains_enabled() {
+        let rect = Rect::new(x, y, WIDGET_WIDTH, WIDGET_HEIGHT);
+        trains_widget(out, state, rect, today, minutes);
+        x -= WIDGET_WIDTH + WIDGET_GAP;
+    }
+    if widgets.calendar_enabled() {
+        let rect = Rect::new(x, y, WIDGET_WIDTH, WIDGET_HEIGHT);
+        calendar_widget(out, state, assets, rect, today, minutes);
+    }
+}
+
+fn calendar_widget(
+    out: &mut Scene,
+    state: &State,
+    assets: &Assets,
+    rect: Rect,
+    today: Date,
+    minutes: i32,
+) {
+    widget_card(out, rect);
+    let inner = rect.w - 2. * WIDGET_PAD;
+    out.text(
+        "Täna",
+        Rect::new(rect.x + WIDGET_PAD, rect.y + 18., 120., 30.),
+        text(22.4, 600, -0.03),
+        WHITE,
+        false,
+    );
+    out.text(
+        format!(
+            "{} {:02}.{:02}",
+            widgets::weekday_name(today),
+            today.day(),
+            u8::from(today.month())
+        ),
+        Rect::new(rect.x + 120., rect.y + 24., rect.w - 120. - WIDGET_PAD, 22.),
+        text(15.2, 400, 0.),
+        c(0xe8e8e8, 0.55),
+        true,
+    );
+    let Some(events) = state.widgets.events_today(today) else {
+        let message = if state.widgets.calendar_failed {
+            "Kalender pole saadaval"
+        } else {
+            "Laen…"
+        };
+        widget_note(out, rect, message);
+        return;
+    };
+    if events.is_empty() {
+        widget_note(out, rect, "Täna pole sündmusi");
+        return;
+    }
+    const ROW: f32 = 40.;
+    let capacity = ((rect.h - 70. - 12.) / ROW) as usize;
+    let shown = if events.len() > capacity {
+        capacity - 1
+    } else {
+        events.len()
+    };
+    for (index, event) in events.iter().take(shown).enumerate() {
+        let row_y = rect.y + 66. + index as f32 * ROW;
+        // A timed event that is over is dimmed; the one under way is highlighted.
+        let finished = !event.all_day && event.end.max(event.start + 1) <= minutes;
+        let current = !event.all_day && event.start <= minutes && minutes < event.end;
+        let alpha = if finished { 0.38 } else { 1. };
+        let (label, label_style) = if event.all_day {
+            ("Terve päev".to_owned(), text(13.6, 500, 0.))
+        } else {
+            (widgets::clock(event.start.max(0)), text(17.6, 600, 0.))
+        };
+        let label_color = if current {
+            c(0x6cc4ff, 1.)
+        } else {
+            c(0xe8e8e8, 0.62 * alpha)
+        };
+        out.text(
+            label,
+            Rect::new(rect.x + WIDGET_PAD, row_y + 5., 76., 26.),
+            label_style,
+            label_color,
+            false,
+        );
+        let style = text(18.4, 500, -0.02);
+        let title_width = inner - 82.;
+        out.text(
+            ellipsize(assets, &event.summary, style, title_width),
+            Rect::new(rect.x + WIDGET_PAD + 82., row_y + 4., title_width, 28.),
+            style,
+            c(0xf5f5f5, 0.95 * alpha),
+            false,
+        );
+    }
+    if shown < events.len() {
+        out.text(
+            format!("+{} veel", events.len() - shown),
+            Rect::new(
+                rect.x + WIDGET_PAD,
+                rect.y + 66. + shown as f32 * ROW + 5.,
+                inner,
+                26.,
+            ),
+            text(15.2, 500, 0.),
+            c(0xe8e8e8, 0.55),
+            false,
+        );
+    }
+}
+
+fn trains_widget(out: &mut Scene, state: &State, rect: Rect, today: Date, minutes: i32) {
+    widget_card(out, rect);
+    out.text(
+        "Elron · Kohila",
+        Rect::new(rect.x + WIDGET_PAD, rect.y + 18., rect.w - 2. * WIDGET_PAD, 30.),
+        text(22.4, 600, -0.03),
+        WHITE,
+        false,
+    );
+    let Some(table) = &state.widgets.timetable else {
+        let message = if state.widgets.timetable_failed {
+            "Sõiduplaan pole saadaval"
+        } else {
+            "Laen…"
+        };
+        widget_note(out, rect, message);
+        return;
+    };
+    let upcoming = table.upcoming(today, minutes, 8);
+    let Some(next) = upcoming.first() else {
+        widget_note(out, rect, "Rongid puuduvad");
+        return;
+    };
+    let wait = next.minutes_until(minutes);
+    let next_label = if wait <= 0 {
+        "väljub nüüd".to_owned()
+    } else if wait < 60 {
+        format!("järgmine {wait} min")
+    } else {
+        format!("järgmine {}h {}m", wait / 60, wait % 60)
+    };
+    out.text(
+        next_label,
+        Rect::new(rect.x + WIDGET_PAD, rect.y + 50., rect.w - 2. * WIDGET_PAD, 22.),
+        text(15.2, 400, 0.),
+        c(0x6cc4ff, 0.9),
+        false,
+    );
+    // Column heads, then the trains; a caption marks where tomorrow's begin.
+    let columns = [WIDGET_PAD, 112., 202., 290.];
+    let widths = [86., 86., 78., 40.]; // each column ends inside the card (352 wide, 22 padding)
+    let head = text(13.6, 500, 0.);
+    for ((column, width), label) in columns
+        .iter()
+        .zip(widths)
+        .zip(["Väljub", "T-Väike", "Tallinn", "Liin"])
+    {
+        out.text(
+            label,
+            Rect::new(rect.x + column, rect.y + 80., width, 20.),
+            head,
+            c(0xe8e8e8, 0.42),
+            false,
+        );
+    }
+    let bottom = rect.y + rect.h - 12.;
+    let mut y = rect.y + 104.;
+    let mut tomorrow_marked = false;
+    for train in &upcoming {
+        if train.later_day() && !tomorrow_marked {
+            tomorrow_marked = true;
+            if y + 24. > bottom {
+                break;
+            }
+            out.text(
+                "Homme",
+                Rect::new(rect.x + WIDGET_PAD, y + 2., 120., 20.),
+                head,
+                c(0x6cc4ff, 0.7),
+                false,
+            );
+            y += 24.;
+        }
+        if y + 38. > bottom {
+            break;
+        }
+        let arrival = |value: Option<i32>| value.map_or("—".to_owned(), widgets::clock);
+        let dim = c(0xe8e8e8, 0.7);
+        out.text(
+            widgets::clock(train.abs),
+            Rect::new(rect.x + columns[0], y, 86., 30.),
+            text(21.6, 600, -0.02),
+            WHITE,
+            false,
+        );
+        out.text(
+            arrival(train.departure.vaike),
+            Rect::new(rect.x + columns[1], y + 3., 86., 26.),
+            text(18.4, 400, 0.),
+            dim,
+            false,
+        );
+        out.text(
+            arrival(train.departure.tallinn),
+            Rect::new(rect.x + columns[2], y + 3., widths[2], 26.),
+            text(18.4, 400, 0.),
+            dim,
+            false,
+        );
+        out.text(
+            train.departure.line.clone(),
+            Rect::new(rect.x + columns[3], y + 5., widths[3], 24.),
+            text(15.2, 500, 0.),
+            c(0xe8e8e8, 0.5),
+            false,
+        );
+        y += 38.;
     }
 }
 
@@ -3794,6 +4068,130 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn widget_cards(scene: &Scene) -> Vec<Rect> {
+        scene
+            .draw
+            .iter()
+            .filter_map(|draw| match draw {
+                Draw::RoundedGradient(rect, ..) if rect.w == WIDGET_WIDTH && rect.h == WIDGET_HEIGHT => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn home_widgets_stay_inside_their_cards_and_shorten_long_titles() {
+        use crate::calendar::Occurrence;
+        use crate::widgets::{CalendarDay, Config, Departure, Timetable};
+        let assets = assets();
+        let mut state = State::new(Preferences::default());
+        state.set_inventory(demo_inventory(), None);
+        let today = Date::from_calendar_date(2026, time::Month::October, 29).unwrap();
+        let event = |start: i32, end: i32, title: &str| Occurrence {
+            all_day: false,
+            start,
+            end,
+            summary: title.into(),
+            location: String::new(),
+        };
+        let mut events = vec![Occurrence {
+            all_day: true,
+            start: 0,
+            end: 1440,
+            summary: "Name day".into(),
+            location: String::new(),
+        }];
+        events.push(event(540, 600, "Stand-up"));
+        events.push(event(
+            660,
+            720,
+            &"A very long meeting title that cannot possibly fit in the card ".repeat(2),
+        ));
+        for i in 0..7 {
+            events.push(event(1000 + i * 10, 1010 + i * 10, &format!("Event {i}")));
+        }
+        state.widgets.set_config(Config {
+            calendar_url: Some("https://example.test/a.ics".into()),
+            ..Config::default()
+        });
+        state.widgets.accept_calendar(Ok(vec![CalendarDay { date: today, events }]), 0);
+        let train = |depart: i32| Departure {
+            depart,
+            vaike: Some(depart + 34),
+            tallinn: Some(depart + 40),
+            line: "R21".into(),
+        };
+        let table = Timetable {
+            days: vec![
+                (today, vec![train(800), train(900), train(1300), train(1400), train(1430)]),
+                (today.next_day().unwrap(), vec![train(369), train(404)]),
+            ],
+        };
+        state.widgets.accept_timetable(Ok(table), 0);
+        // 19:00 UTC is 21:00 in Estonia: the 21:40 train is next and tomorrow's follow.
+        let now = OffsetDateTime::new_utc(today, time::Time::from_hms(19, 0, 0).unwrap());
+        let mut scene = Scene::new();
+        home(&mut scene, &state, &assets, now);
+
+        let cards = widget_cards(&scene);
+        assert_eq!(cards.len(), 2);
+        let (calendar, trains) = (cards[1], cards[0]);
+        assert!(calendar.x + calendar.w <= trains.x, "the cards must not overlap");
+        assert!(trains.x + trains.w <= WIDGET_RIGHT + 0.01);
+
+        let mut labels = Vec::new();
+        for draw in &scene.draw {
+            let Draw::Text(label, rect, ..) = draw else { continue };
+            let in_band = rect.y >= WIDGET_TOP - 1. && rect.y <= WIDGET_TOP + WIDGET_HEIGHT;
+            let in_cards = rect.x >= calendar.x - 1.;
+            if !(in_band && in_cards && rect.x < WIDGET_RIGHT) {
+                continue;
+            }
+            let card = if rect.x >= trains.x - 1. { trains } else { calendar };
+            assert!(
+                rect.x >= card.x && rect.x + rect.w <= card.x + card.w + 0.01,
+                "{label:?} sticks out of its card sideways"
+            );
+            assert!(
+                rect.y >= card.y && rect.y + rect.h <= card.y + card.h,
+                "{label:?} sticks out of its card vertically"
+            );
+            labels.push(label.clone());
+        }
+        // The long title is shortened, and what does not fit is counted.
+        assert!(labels.iter().any(|l| l.ends_with('…') && l.starts_with("A very long")));
+        assert!(labels.iter().all(|l| l.chars().count() < 70));
+        assert!(labels.contains(&"+6 veel".to_owned()), "{labels:?}");
+        assert!(labels.contains(&"Name day".to_owned()));
+        assert!(labels.contains(&"Terve päev".to_owned()));
+        // Trains: the next one first, tomorrow marked, the departed ones gone.
+        assert!(labels.contains(&"21:40".to_owned()));
+        assert!(labels.contains(&"Homme".to_owned()));
+        assert!(!labels.contains(&"13:20".to_owned()));
+        assert!(labels.contains(&"järgmine 40 min".to_owned()), "{labels:?}");
+    }
+
+    #[test]
+    fn home_widgets_are_absent_until_configured_and_say_so_while_loading() {
+        use crate::widgets::Config;
+        let assets = assets();
+        let mut state = State::new(Preferences::default());
+        state.set_inventory(demo_inventory(), None);
+        state.widgets.set_config(Config { show_trains: Some(false), ..Config::default() });
+        let mut scene = Scene::new();
+        home(&mut scene, &state, &assets, OffsetDateTime::UNIX_EPOCH);
+        assert!(widget_cards(&scene).is_empty());
+
+        // The train widget is on by default; before its data arrives it says it is loading.
+        state.widgets.set_config(Config::default());
+        let mut scene = Scene::new();
+        home(&mut scene, &state, &assets, OffsetDateTime::UNIX_EPOCH);
+        assert_eq!(widget_cards(&scene).len(), 1);
+        assert!(scene.draw.iter().any(|d| matches!(d, Draw::Text(label, ..) if label == "Laen…")));
     }
 
     #[test]

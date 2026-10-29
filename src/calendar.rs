@@ -24,38 +24,60 @@ pub struct Occurrence {
     pub location: String,
 }
 
-/// The events of `day` (a local date) found in the feed text, all-day ones first, then by start.
-pub fn events_on(ics: &str, day: Date) -> Vec<Occurrence> {
-    let events = parse(ics);
+/// A parsed feed. Parsing is the slow part, so it is done once and days are then asked for cheaply.
+pub struct Feed {
+    events: Vec<Event>,
+    /// (uid, original start) of instances that a moved or cancelled one stands in for.
+    replaced: HashSet<(String, i64)>,
+}
 
+pub fn parse_feed(ics: &str) -> Feed {
+    let events = parse(ics);
     // A moved or cancelled instance of a recurring event replaces the generated one.
-    let replaced: HashSet<(String, i64)> = events
+    let replaced = events
         .iter()
         .filter_map(|e| e.recurrence_id.map(|r| (e.uid.clone(), r.key())))
         .collect();
+    Feed { events, replaced }
+}
 
-    let mut found = Vec::new();
-    for event in events.iter().filter(|e| !e.cancelled) {
-        for (start, end) in event.instances_near(day) {
-            if event.rule.is_some() && replaced.contains(&(event.uid.clone(), start.key())) {
-                continue;
-            }
-            if event.exdates.iter().any(|x| x.key() == start.key()) {
-                continue;
-            }
-            if let Some(occurrence) = event.occurrence_on(day, start, end) {
-                found.push(occurrence);
+impl Feed {
+    /// The events of `day` (a local date), all-day ones first, then by start.
+    pub fn events_on(&self, day: Date) -> Vec<Occurrence> {
+        let mut found = Vec::new();
+        for event in self.events.iter().filter(|e| !e.cancelled) {
+            for (start, end) in event.instances_near(day) {
+                if event.rule.is_some() && self.replaced.contains(&(event.uid.clone(), start.key())) {
+                    continue;
+                }
+                if event.exdates.iter().any(|x| x.key() == start.key()) {
+                    continue;
+                }
+                if let Some(occurrence) = event.occurrence_on(day, start, end) {
+                    found.push(occurrence);
+                }
             }
         }
+        found.sort_by(|a, b| {
+            b.all_day
+                .cmp(&a.all_day)
+                .then(a.start.cmp(&b.start))
+                .then_with(|| a.summary.cmp(&b.summary))
+        });
+        found.dedup();
+        found
     }
-    found.sort_by(|a, b| {
-        b.all_day
-            .cmp(&a.all_day)
-            .then(a.start.cmp(&b.start))
-            .then_with(|| a.summary.cmp(&b.summary))
-    });
-    found.dedup();
-    found
+
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.events.len()
+    }
+}
+
+/// The events of `day` found in the feed text (parses the whole feed; for one-off use and tests).
+#[cfg(test)]
+pub fn events_on(ics: &str, day: Date) -> Vec<Occurrence> {
+    parse_feed(ics).events_on(day)
 }
 
 // ---------------------------------------------------------------------------------------

@@ -320,7 +320,7 @@ fn real_feed_smoke_test() {
     let Ok(path) = std::env::var("LUMA_TEST_ICS") else { return };
     let text = std::fs::read_to_string(path).unwrap();
     let started = std::time::Instant::now();
-    println!("parsed events: {}", parse(&text).len());
+    println!("parsed events: {}", parse_feed(&text).len());
     let days: i64 = std::env::var("LUMA_TEST_DAYS").ok().and_then(|v| v.parse().ok()).unwrap_or(7);
     let first = std::env::var("LUMA_TEST_FIRST").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
     for offset in first..first + days {

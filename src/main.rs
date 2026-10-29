@@ -36,6 +36,9 @@ mod weather;
 #[path = "weather-service.rs"]
 mod weather_service;
 mod webhook;
+mod widgets;
+#[path = "widgets-service.rs"]
+mod widgets_service;
 #[cfg(all(feature = "webos", any(target_os = "linux", test)))]
 #[path = "webos-compat.rs"]
 mod webos_compat;
@@ -481,6 +484,33 @@ fn weather_tick(state: &mut State, service: &weather_service::Service, visible: 
     }
 }
 
+/// Keeps the Home widgets' data fresh: picks up an edited widgets.json, starts due fetches and
+/// takes in finished ones. Nothing is fetched while Home is not showing.
+fn widgets_tick(
+    state: &mut State,
+    service: &widgets_service::Service,
+    config_path: &std::path::Path,
+    visible: bool,
+    now: OffsetDateTime,
+) {
+    let seconds = OffsetDateTime::now_utc().unix_timestamp();
+    if state.widgets.config_check_due(seconds) {
+        state.dirty |= state.widgets.set_config(widgets::load_config(config_path));
+    }
+    let (today, _) = widgets::estonian_now(now);
+    let home = visible && state.page == state::Page::Home;
+    for command in state.widgets.sync(home, seconds, today) {
+        service.send(command);
+    }
+    while let Ok(response) = service.receiver.try_recv() {
+        match response {
+            widgets_service::Response::Calendar(result) => state.widgets.accept_calendar(result, seconds),
+            widgets_service::Response::Timetable(result) => state.widgets.accept_timetable(result, seconds),
+        }
+        state.dirty = true;
+    }
+}
+
 fn scripted_click(
     sdl: &sdl2::Sdl,
     window: &sdl2::video::Window,
@@ -680,6 +710,11 @@ fn run() -> Result<(), String> {
         weather_service::Client::new(options.weather_test_server.as_deref())?,
         weather_cache,
     );
+    let widgets_config_path = widgets::config_path(&preferences_path);
+    state
+        .widgets
+        .set_config(widgets::load_config(&widgets_config_path));
+    let widgets_service = widgets_service::Service::new();
     let updates = update::Worker::new(webos && public_update_checks);
     let platform = Platform::new(
         webos,
@@ -1626,6 +1661,7 @@ fn run() -> Result<(), String> {
             platform.send(Request::Refresh);
         }
         weather_tick(&mut state, &weather_service, visible);
+        widgets_tick(&mut state, &widgets_service, &widgets_config_path, visible, now);
         // SDL-webOS disables text input when its own panel is dismissed, even
         // if it did not forward a Back/Return key to the application.
         if text_active
