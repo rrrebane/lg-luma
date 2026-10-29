@@ -1,0 +1,38 @@
+name: Elron timetable
+
+# Rebuilds the small Kohila train timetable the widget downloads and publishes it on the
+# `widget-data` branch (one commit, replaced each run). Only public timetable data is involved.
+on:
+  schedule:
+    - cron: "17 1,13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: elron-timetable
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and publish timetable
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test the builder
+        working-directory: tools/elron-kohila
+        run: python3 test_build.py
+      - name: Build the timetable
+        run: python3 tools/elron-kohila/build.py --out "$RUNNER_TEMP/elron-kohila.json"
+      - name: Publish to widget-data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --orphan widget-data
+          git rm -rf . --quiet || true
+          cp "$RUNNER_TEMP/elron-kohila.json" elron-kohila.json
+          git add elron-kohila.json
+          git commit --quiet -m "Kohila timetable $(date -u +%F)"
+          git push --force origin widget-data
