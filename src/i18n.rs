@@ -30,10 +30,12 @@ pub enum Language {
     Vi,
     Nl,
     Sv,
+    Et,
 }
 impl Language {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::De,
+        Self::Et,
         Self::En,
         Self::Es,
         Self::Fr,
@@ -62,6 +64,7 @@ impl Language {
             Self::Vi => "vi",
             Self::Nl => "nl",
             Self::Sv => "sv",
+            Self::Et => "et",
         }
     }
     pub fn name(self) -> &'static str {
@@ -79,6 +82,7 @@ impl Language {
             Self::Vi => "Tiếng Việt",
             Self::Nl => "Nederlands",
             Self::Sv => "Svenska",
+            Self::Et => "Eesti",
         }
     }
     pub fn index(self) -> usize {
@@ -441,6 +445,34 @@ impl Language {
                 ][month]
             )
             .to_uppercase(),
+            Self::Et => format!(
+                "{}, {}. {}",
+                [
+                    "esmaspäev",
+                    "teisipäev",
+                    "kolmapäev",
+                    "neljapäev",
+                    "reede",
+                    "laupäev",
+                    "pühapäev"
+                ][weekday],
+                now.day(),
+                [
+                    "jaanuar",
+                    "veebruar",
+                    "märts",
+                    "aprill",
+                    "mai",
+                    "juuni",
+                    "juuli",
+                    "august",
+                    "september",
+                    "oktoober",
+                    "november",
+                    "detsember"
+                ][month]
+            )
+            .to_uppercase(),
         }
     }
     pub fn clock(self, now: OffsetDateTime, hour24: bool, seconds: bool) -> String {
@@ -498,6 +530,7 @@ pub fn deserialize_language<'de, D: Deserializer<'de>>(
             Some("vi") => Language::Vi,
             Some("nl") => Language::Nl,
             Some("sv") => Language::Sv,
+            Some("et") => Language::Et,
             _ => Language::En,
         },
     )
@@ -573,6 +606,7 @@ mod tests {
                 super::Language::Vi => "Vietnamese",
                 super::Language::Nl => "Dutch",
                 super::Language::Sv => "Swedish",
+                super::Language::Et => "Estonian",
             };
             assert!(
                 description.contains(name),
@@ -696,6 +730,7 @@ mod tests {
         assert_eq!(Language::Nl.date(now), "WOENSDAG 21 OKTOBER");
         assert_eq!(Language::Nl.clock(now, true, false), "20:41");
         assert_eq!(Language::Sv.date(now), "ONSDAG 21 OKTOBER");
+        assert_eq!(Language::Et.date(now), "KOLMAPÄEV, 21. OKTOOBER");
         assert_eq!(Language::Sv.clock(now, true, false), "20:41");
         assert_eq!(Language::Zh.clock(now, false, false), "下午8:41");
         assert_eq!(Language::Zh.clock(now, false, true), "下午8:41:00");

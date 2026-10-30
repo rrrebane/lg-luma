@@ -1629,7 +1629,7 @@ fn language_selection_restores_its_parent_and_is_saved_with_preferences() {
     );
     state.direction(Direction::Up, &controls(&state));
     assert_eq!(state.activate(), vec![Effect::Save]);
-    assert_eq!(state.preferences.language, crate::i18n::Language::De);
+    assert_eq!(state.preferences.language, crate::i18n::Language::Et);
     assert_eq!(state.focus, Target::Setting(4));
     state.activate();
     state.direction(Direction::Left, &controls(&state));
