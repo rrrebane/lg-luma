@@ -488,7 +488,7 @@ impl Language {
     }
     fn clock_base(self, now: OffsetDateTime, hour24: bool) -> String {
         if hour24 {
-            return if self == Self::En {
+            return if matches!(self, Self::En | Self::Et) {
                 format!("{:02}:{:02}", now.hour(), now.minute())
             } else {
                 format!("{}:{:02}", now.hour(), now.minute())
@@ -731,6 +731,10 @@ mod tests {
         assert_eq!(Language::Nl.clock(now, true, false), "20:41");
         assert_eq!(Language::Sv.date(now), "ONSDAG 21 OKTOBER");
         assert_eq!(Language::Et.date(now), "KOLMAPÄEV, 21. OKTOOBER");
+        assert_eq!(
+            Language::Et.clock(now.replace_hour(8).unwrap(), true, false),
+            "08:41"
+        );
         assert_eq!(Language::Sv.clock(now, true, false), "20:41");
         assert_eq!(Language::Zh.clock(now, false, false), "下午8:41");
         assert_eq!(Language::Zh.clock(now, false, true), "下午8:41:00");
