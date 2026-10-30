@@ -1119,6 +1119,7 @@ fn home(out: &mut Scene, state: &State, assets: &Assets, now: OffsetDateTime) {
     }
     if state.preferences.show_greeting {
         let greeting = language.greeting(now.hour(), &state.preferences.greeting_name);
+        let greeting = greeting.trim_end_matches('.').to_owned();
         let greeting_style = text(90.4, 500, -0.065).leading(1.05);
         let fitted = assets.fit_text(&greeting, greeting_style, 1500.);
         let height = 95. * fitted.size / greeting_style.size;
@@ -1368,8 +1369,8 @@ fn widget_card(out: &mut Scene, rect: Rect) {
     out.draw.push(Draw::RoundedGradient(
         rect,
         18.4,
-        c(0x20252b, 0.60),
-        c(0x171c22, 0.55),
+        c(0x0d1014, 0.86),
+        c(0x090c10, 0.82),
     ));
     out.border(rect, 18.4, 1., c(0xffffff, 0.063));
 }
@@ -1480,6 +1481,15 @@ fn calendar_widget(
             label_color,
             false,
         );
+        if !event.all_day && event.end > event.start {
+            out.text(
+                format!("kuni {}", widgets::clock(event.end)),
+                Rect::new(rect.x + WIDGET_PAD, row_y + 25., 76., 16.),
+                text(12.4, 400, 0.),
+                c(0xe8e8e8, 0.5 * alpha),
+                false,
+            );
+        }
         let style = text(18.4, 500, -0.02);
         let title_width = inner - 82.;
         out.text(
@@ -3982,7 +3992,12 @@ mod tests {
             });
             let mut scene = Scene::new();
             home(&mut scene, &state, &assets, OffsetDateTime::UNIX_EPOCH);
-            let greeting = state.preferences.language.greeting(0, name);
+            let greeting = state
+                .preferences
+                .language
+                .greeting(0, name)
+                .trim_end_matches('.')
+                .to_owned();
             let (rect, style) = scene
                 .draw
                 .iter()
