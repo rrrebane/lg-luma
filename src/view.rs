@@ -1426,17 +1426,25 @@ fn calendar_widget(
         WHITE,
         false,
     );
+    let date = format!(
+        "{} {:02}.{:02}",
+        widgets::weekday_name(today),
+        today.day(),
+        u8::from(today.month())
+    );
+    let date_style = text(22.4, 600, -0.03);
+    let date_width = assets.width(&date, date_style).ceil() + 2.;
     out.text(
-        format!(
-            "{} {:02}.{:02}",
-            widgets::weekday_name(today),
-            today.day(),
-            u8::from(today.month())
+        date,
+        Rect::new(
+            rect.x + rect.w - WIDGET_PAD - date_width,
+            rect.y + 18.,
+            date_width,
+            30.,
         ),
-        Rect::new(rect.x + 120., rect.y + 24., rect.w - 120. - WIDGET_PAD, 22.),
-        text(15.2, 400, 0.),
-        c(0xe8e8e8, 0.55),
-        true,
+        date_style,
+        WHITE,
+        false,
     );
     let Some(events) = state.widgets.events_today(today) else {
         let message = if state.widgets.calendar_failed {
