@@ -173,3 +173,15 @@ fn downloads_wait_for_home_and_are_not_repeated() {
     assert!(resume.sync(true, 11).is_empty(), "failed ones wait");
     assert_eq!(resume.sync(true, 10 + IMAGE_RETRY).len(), 1);
 }
+
+#[test]
+fn numeric_ids_are_accepted_as_the_apps_store_them() {
+    let mut value = entry("1", 1);
+    value["id"] = json!(1609570862_u64);
+    let item = parse_item(Source::Jupiter, &value).unwrap();
+    assert_eq!(item.id, "1609570862");
+    value["id"] = json!(-5);
+    assert!(parse_item(Source::Jupiter, &value).is_none());
+    value["id"] = json!(1.5);
+    assert!(parse_item(Source::Jupiter, &value).is_none());
+}

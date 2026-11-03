@@ -134,9 +134,19 @@ fn err_url(value: &str) -> Option<String> {
 }
 
 /// One entry as the apps send it: `{id, title, type, domain, url, img, t, d, ts}`.
+/// An ERR id; the sites send them as numbers in some places and as strings in others.
+fn id_text(value: &Value) -> Option<String> {
+    match value.get("id")? {
+        Value::String(text) => Some(text.clone()),
+        Value::Number(number) if number.is_u64() => Some(number.to_string()),
+        _ => None,
+    }
+}
+
 fn parse_item(source: Source, value: &Value) -> Option<Item> {
     let text = |key: &str| value.get(key).and_then(Value::as_str).unwrap_or("");
-    let id = text("id");
+    let id = id_text(value)?;
+    let id = id.as_str();
     let title = text("title");
     let kind = text("type");
     let domain = text("domain");
@@ -240,10 +250,7 @@ pub fn parse_picks(value: &Value) -> Result<Vec<Item>, String> {
             list.iter()
                 .filter_map(|entry| {
                     let kind = entry.get("type")?.as_str()?;
-                    let id = entry.get("id").map(|id| match id {
-                        Value::String(text) => text.clone(),
-                        other => other.to_string(),
-                    })?;
+                    let id = id_text(entry)?;
                     let title = entry.get("heading")?.as_str()?;
                     if !matches!(kind, "movie" | "episode" | "series")
                         || !safe_id(&id)
