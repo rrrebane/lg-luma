@@ -1338,6 +1338,136 @@ fn home(out: &mut Scene, state: &State, assets: &Assets, now: OffsetDateTime) {
         }
         out.control(Target::Input(input.id.clone()), rect, true);
     }
+    let input_rows = inputs.len().div_ceil(3) as f32;
+    let below = if inputs.is_empty() {
+        input_y
+    } else {
+        input_y + 58.4 + input_rows * 126.4 + 14.
+    };
+    resume_rows(out, state, assets, below);
+}
+
+// The rows under the inputs: what was started in the ERR apps, then the kids' row. Neither scrolls
+// sideways; each shows its first five cards.
+const RESUME_CARD_W: f32 = 328.;
+const RESUME_CARD_H: f32 = 184.5;
+const RESUME_PITCH: f32 = 356.;
+const RESUME_CAPTIONS: f32 = 62.;
+const RESUME_ROW: f32 = 58.4 + RESUME_CARD_H + RESUME_CAPTIONS + 34.;
+
+fn resume_rows(out: &mut Scene, state: &State, assets: &Assets, mut y: f32) {
+    let language = state.preferences.language;
+    for (heading, cards) in [
+        ("continueWatching", state.resume.watch_cards()),
+        ("forKids", state.resume.kids_cards()),
+    ] {
+        if cards.is_empty() {
+            continue;
+        }
+        out.text(
+            language.t(heading),
+            Rect::new(84., y + 3.3, 1000., 31.),
+            text(23.2, 550, -0.035).leading(1.3),
+            WHITE,
+            false,
+        );
+        for (index, card) in cards.iter().enumerate() {
+            let rect = Rect::new(
+                84. + index as f32 * RESUME_PITCH,
+                y + 58.4,
+                RESUME_CARD_W,
+                RESUME_CARD_H,
+            );
+            resume_card(out, state, assets, card, rect);
+        }
+        y += RESUME_ROW;
+    }
+}
+
+fn resume_card(
+    out: &mut Scene,
+    state: &State,
+    assets: &Assets,
+    card: &crate::resume::Card,
+    rect: Rect,
+) {
+    let target = Target::Resume(card.key.clone());
+    out.control(
+        target.clone(),
+        Rect::new(rect.x, rect.y, rect.w, rect.h + RESUME_CAPTIONS),
+        true,
+    );
+    if rect.y + rect.h + RESUME_CAPTIONS < MAIN_TOP || rect.y > 1054. {
+        return;
+    }
+    let start = out.draw.len();
+    let focused = state.focus == target;
+    out.shadow(
+        rect,
+        14.,
+        if focused { 34. } else { 22. },
+        if focused { 14. } else { 9. },
+        if focused { 0.4 } else { 0.165 },
+    );
+    match &card.image {
+        Some(path) => out.image(path.to_string_lossy().into_owned(), rect, 14., false),
+        None => {
+            out.draw.push(Draw::RoundedGradient(
+                rect,
+                14.,
+                c(0x30363c, 0.9),
+                c(0x171c22, 0.9),
+            ));
+            out.text(
+                card.source.title(),
+                Rect::new(rect.x + 12., rect.y + rect.h / 2. - 14., rect.w - 24., 28.),
+                text(20.8, 550, -0.02),
+                c(0xffffff, 0.6),
+                true,
+            );
+        }
+    }
+    if let Some(progress) = card.progress {
+        let track = Rect::new(rect.x + 14., rect.y + rect.h - 17., rect.w - 28., 5.);
+        out.shape(track, 2.5, c(0x000000, 0.55));
+        if progress > 0.01 {
+            out.shape(
+                Rect::new(track.x, track.y, track.w * progress, track.h),
+                2.5,
+                c(0xffffff, 0.95),
+            );
+        }
+    }
+    if focused {
+        out.ring(rect, 14.);
+    }
+    if state.pressed.as_ref() == Some(&target) {
+        out.fade(start, 1., 0.85);
+    }
+    let title = ellipsize(
+        assets,
+        &card.title,
+        text(20.8, if focused { 600 } else { 550 }, -0.02),
+        rect.w - 8.,
+    );
+    out.text(
+        title,
+        Rect::new(rect.x + 4., rect.y + rect.h + 12., rect.w - 8., 28.),
+        text(20.8, if focused { 600 } else { 550 }, -0.02),
+        if focused {
+            c(0xffffff, 1.)
+        } else {
+            c(0xececec, 0.66)
+        },
+        false,
+    );
+    out.text(
+        &card.caption,
+        Rect::new(rect.x + 4., rect.y + rect.h + 40., rect.w - 8., 22.),
+        text(16.8, 400, 0.),
+        c(0xe8e8e8, 0.48),
+        false,
+    );
 }
 
 // The right-hand widgets on Home: today's calendar events and the next trains from Kohila. They

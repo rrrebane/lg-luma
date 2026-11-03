@@ -53,6 +53,8 @@ pub enum Target {
     RecentRetry,
     App(String),
     Input(String),
+    /// A "continue watching" or kids card on Home, by its key.
+    Resume(String),
     Browse,
     Filter(usize),
     ClearFilter,
@@ -186,6 +188,8 @@ pub enum Effect {
     /// Refresh apps: read the inventory and every app icon again.
     Reload,
     Launch(String),
+    /// Open an app with launch parameters, e.g. straight onto a video.
+    LaunchWith(String, serde_json::Value),
     Uninstall(String),
     DeleteWallpaper(String),
     Recent {
@@ -244,6 +248,7 @@ pub struct State {
     pub panel_started: Option<Instant>,
     pub weather: weather::Weather,
     pub widgets: crate::widgets::Widgets,
+    pub resume: crate::resume::Resume,
     pub keyboard_field: TextField,
     pub greeting_name_draft: String,
     pub input_name: String,
@@ -288,6 +293,7 @@ impl State {
             panel_started: None,
             weather: weather::Weather::default(),
             widgets: crate::widgets::Widgets::default(),
+            resume: crate::resume::Resume::default(),
             keyboard_field: TextField::Apps,
             greeting_name_draft: String::new(),
             input_name: String::new(),
@@ -1924,6 +1930,11 @@ impl State {
             Target::App(_) if self.page == Page::Apps && !self.launching => self.options(),
             Target::App(id) | Target::Input(id) if !self.launching => {
                 return vec![Effect::Launch(id)];
+            }
+            Target::Resume(key) if !self.launching => {
+                if let Some(card) = self.resume.find(&key) {
+                    return vec![Effect::LaunchWith(card.source.app_id().into(), card.params)];
+                }
             }
             Target::OpenApp if !self.launching => {
                 if let Some(Overlay::Options { id, .. }) = &self.overlay

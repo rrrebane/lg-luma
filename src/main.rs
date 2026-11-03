@@ -19,6 +19,9 @@ mod platform;
 mod raster;
 mod recents;
 mod renderer;
+mod resume;
+#[path = "resume-service.rs"]
+mod resume_service;
 #[path = "scroll-preview.rs"]
 mod scroll_preview;
 mod sdl_events;
@@ -321,6 +324,22 @@ fn effects(
                     platform.send(Request::Refresh);
                 }
             }
+            Effect::LaunchWith(id, params) => {
+                if !state.launching {
+                    if platform.webos {
+                        state.launching = true;
+                        state.notify(state.preferences.language.t("opening"));
+                        platform.send(Request::LaunchWith(id, params));
+                    } else {
+                        state.notify(
+                            state
+                                .preferences
+                                .language
+                                .format("desktopPreview", &[("app", id.as_str())]),
+                        );
+                    }
+                }
+            }
             Effect::Launch(id) => {
                 if scroll_preview::is_placeholder(&id) {
                     state.notify(state.preferences.language.t("scrollTestOnly"));
@@ -512,6 +531,36 @@ fn widgets_tick(
             }
         }
         state.dirty = true;
+    }
+}
+
+/// Keeps the "continue watching" rows up to date: takes in what the apps post and what the worker
+/// downloaded, and starts the downloads that are due. Nothing is fetched while Home is not showing.
+fn resume_tick(state: &mut State, service: &resume_service::Service, visible: bool) {
+    let seconds = OffsetDateTime::now_utc().unix_timestamp();
+    let home = visible && state.page == state::Page::Home;
+    for command in state.resume.sync(home, seconds) {
+        service.send(command);
+    }
+    while let Ok(response) = service.receiver.try_recv() {
+        match response {
+            resume_service::Response::Items(source, items) => {
+                if state.resume.accept_items(source, items) {
+                    if let Err(error) = state.resume.save() {
+                        eprintln!("{error}");
+                    }
+                    state.dirty = true;
+                }
+            }
+            resume_service::Response::Picks(result) => {
+                state.resume.accept_picks(result, seconds);
+                state.dirty = true;
+            }
+            resume_service::Response::Image { url, ok } => {
+                state.resume.accept_image(&url, ok, seconds);
+                state.dirty |= ok;
+            }
+        }
     }
 }
 
@@ -719,6 +768,8 @@ fn run() -> Result<(), String> {
         .widgets
         .set_config(widgets::load_config(&widgets_config_path));
     let widgets_service = widgets_service::Service::new();
+    state.resume = resume::Resume::new(&preferences_path);
+    let resume_service = resume_service::Service::new();
     let updates = update::Worker::new(webos && public_update_checks);
     let platform = Platform::new(
         webos,
@@ -1672,6 +1723,7 @@ fn run() -> Result<(), String> {
             visible,
             now,
         );
+        resume_tick(&mut state, &resume_service, visible);
         // SDL-webOS disables text input when its own panel is dismissed, even
         // if it did not forward a Back/Return key to the application.
         if text_active

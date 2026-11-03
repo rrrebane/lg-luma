@@ -1999,6 +1999,38 @@
     "sv": "Ingångar",
     "et": "Sisendid"
   },
+  "continueWatching": {
+    "zh-tw": "繼續觀看",
+    "en": "Continue watching",
+    "de": "Weiterschauen",
+    "es": "Seguir viendo",
+    "zh": "继续观看",
+    "pt": "Continuar a ver",
+    "it": "Continua a guardare",
+    "ru": "Продолжить просмотр",
+    "pl": "Kontynuuj oglądanie",
+    "fr": "Reprendre la lecture",
+    "vi": "Xem tiếp",
+    "nl": "Verder kijken",
+    "sv": "Fortsätt titta",
+    "et": "Vaata edasi"
+  },
+  "forKids": {
+    "zh-tw": "兒童",
+    "en": "For kids",
+    "de": "Für Kinder",
+    "es": "Para niños",
+    "zh": "儿童",
+    "pt": "Para crianças",
+    "it": "Per i bambini",
+    "ru": "Для детей",
+    "pl": "Dla dzieci",
+    "fr": "Pour les enfants",
+    "vi": "Dành cho trẻ em",
+    "nl": "Voor kinderen",
+    "sv": "För barn",
+    "et": "Lastele"
+  },
   "noInputs": {
     "zh-tw": "沒有可用的輸入來源。",
     "en": "No inputs to show.",

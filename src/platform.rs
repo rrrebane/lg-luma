@@ -175,6 +175,7 @@ pub fn redirect_to_home() -> Result<bool, String> {
 pub enum Request {
     Refresh,
     Launch(String),
+    LaunchWith(String, serde_json::Value),
     Uninstall(String),
     SyncSplash(String),
     Recent {
@@ -332,6 +333,19 @@ impl Platform {
                             call(
                                 "luna://com.webos.applicationManager/launch",
                                 json!({"id": id}),
+                            )
+                            .map(|_| ())
+                        }
+                    } else {
+                        Ok(())
+                    }),
+                    Request::LaunchWith(id, params) => Response::Launched(if webos {
+                        if !valid_app_id(&id) {
+                            Err("Invalid application identifier".into())
+                        } else {
+                            call(
+                                "luna://com.webos.applicationManager/launch",
+                                json!({"id": id, "params": params}),
                             )
                             .map(|_| ())
                         }
