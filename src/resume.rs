@@ -35,9 +35,12 @@ pub const IMAGE_HEIGHT: u32 = 270;
 pub enum Source {
     Jupiter,
     Lasteekraan,
+    /// Not one of the apps that post here: the Plex On Deck list is fetched from the server.
+    Plex,
 }
 
 impl Source {
+    /// The apps that post their lists here, and whose lists are kept on disk.
     pub const ALL: [Self; 2] = [Self::Jupiter, Self::Lasteekraan];
 
     pub fn parse(name: &str) -> Option<Self> {
@@ -48,6 +51,7 @@ impl Source {
         match self {
             Self::Jupiter => "jupiter",
             Self::Lasteekraan => "lasteekraan",
+            Self::Plex => "plex",
         }
     }
 
@@ -56,6 +60,7 @@ impl Source {
         match self {
             Self::Jupiter => "com.rebane.jupiter",
             Self::Lasteekraan => "com.rebane.lasteekraan",
+            Self::Plex => "com.beb.plxnative",
         }
     }
 
@@ -63,8 +68,151 @@ impl Source {
         match self {
             Self::Jupiter => "ERR Jupiter",
             Self::Lasteekraan => "Lasteekraan",
+            Self::Plex => "Plex",
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------
+// Plex.
+
+const PLEX_REFRESH: i64 = 5 * 60;
+const PLEX_RETRY: i64 = 2 * 60;
+
+/// The Plex server to ask for "On Deck", from widgets.json. The token is a secret: it is only
+/// ever sent to `base`, in a header, and never logged or drawn.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Plex {
+    /// `http://192.168.1.20:32400`, without a trailing slash.
+    pub base: String,
+    pub token: String,
+}
+
+impl std::fmt::Debug for Plex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Plex({})", self.base)
+    }
+}
+
+/// A host on the home network: a private or loopback IPv4 address, a bare name or `.local`.
+fn lan_host(host: &str) -> bool {
+    if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+        return ip.is_private() || ip.is_loopback() || ip.is_link_local();
+    }
+    !host.is_empty()
+        && host
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'))
+        && (!host.contains('.') || host.ends_with(".local"))
+}
+
+/// Validates the two settings. Plain http is only accepted for a host on the home network.
+pub fn plex_from(url: Option<&str>, token: Option<&str>) -> Option<Plex> {
+    let url = url?.trim().trim_end_matches('/');
+    let token = token?.trim();
+    let (secure, rest) = match url.split_once("://")? {
+        ("https", rest) => (true, rest),
+        ("http", rest) => (false, rest),
+        _ => return None,
+    };
+    let (host, port) = rest.split_once(':').unwrap_or((rest, ""));
+    let host_ok = !host.is_empty()
+        && host.len() <= 64
+        && host
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'))
+        && (secure || lan_host(host));
+    let port_ok = port.is_empty() || (port.len() <= 5 && port.bytes().all(|b| b.is_ascii_digit()));
+    let token_ok = (10..=128).contains(&token.len())
+        && token
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'));
+    (host_ok && port_ok && token_ok).then(|| Plex {
+        base: url.to_owned(),
+        token: token.to_owned(),
+    })
+}
+
+fn percent_encode(text: &str) -> String {
+    text.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// "On Deck" from `/library/onDeck`: what Plex would continue or play next.
+pub fn parse_on_deck(value: &Value, base: &str) -> Result<Vec<Item>, String> {
+    let entries = value
+        .pointer("/MediaContainer/Metadata")
+        .and_then(Value::as_array)
+        .ok_or("Plex returned no On Deck list")?;
+    let items = entries
+        .iter()
+        .filter_map(|entry| {
+            let kind = entry.get("type")?.as_str()?;
+            if !matches!(kind, "movie" | "episode") {
+                return None;
+            }
+            let id = match entry.get("ratingKey")? {
+                Value::String(text) => text.clone(),
+                Value::Number(n) => n.to_string(),
+                _ => return None,
+            };
+            let name = entry.get("title")?.as_str()?;
+            let title = match (kind, entry.get("grandparentTitle").and_then(Value::as_str)) {
+                ("episode", Some(show)) => {
+                    let number = |key: &str| entry.get(key).and_then(Value::as_u64);
+                    match (number("parentIndex"), number("index")) {
+                        (Some(season), Some(episode)) => format!("{show} S{season}E{episode}"),
+                        _ => format!("{show} · {name}"),
+                    }
+                }
+                _ => name.to_owned(),
+            };
+            if !safe_id(&id) || !safe_text(&title, 200) {
+                return None;
+            }
+            let art = entry
+                .get(if kind == "episode" { "thumb" } else { "art" })
+                .or_else(|| entry.get("thumb"))
+                .and_then(Value::as_str)
+                .filter(|path| path.starts_with('/') && path.len() <= 300)
+                .filter(|path| !path.chars().any(char::is_control));
+            let seconds = |key: &str| {
+                entry
+                    .get(key)
+                    .and_then(Value::as_f64)
+                    .filter(|n| n.is_finite() && *n >= 0.)
+                    .map_or(0., |ms| ms / 1000.)
+            };
+            Some(Item {
+                source: Source::Plex,
+                id,
+                title,
+                kind: kind.into(),
+                domain: String::new(),
+                url: String::new(),
+                image: art.map_or_else(String::new, |path| {
+                    format!(
+                        "{base}/photo/:/transcode?width={IMAGE_WIDTH}&height={IMAGE_HEIGHT}&minSize=1&upscale=1&url={}",
+                        percent_encode(path)
+                    )
+                }),
+                position: seconds("viewOffset"),
+                duration: seconds("duration"),
+                updated: entry
+                    .get("lastViewedAt")
+                    .and_then(Value::as_i64)
+                    .map_or(0, |s| s * 1000),
+            })
+        })
+        .take(MAX_ITEMS_PER_APP)
+        .collect();
+    Ok(items)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -298,7 +446,13 @@ pub struct Card {
 
 pub enum Command {
     Picks,
-    Image { url: String, path: PathBuf },
+    Plex(Plex),
+    /// `token` is set for Plex artwork, which the server only gives to its owner.
+    Image {
+        url: String,
+        path: PathBuf,
+        token: Option<String>,
+    },
 }
 
 #[derive(Default)]
@@ -307,6 +461,10 @@ pub struct Resume {
     picks: Vec<Item>,
     picks_pending: bool,
     next_picks: i64,
+    plex: Vec<Item>,
+    plex_config: Option<Plex>,
+    plex_pending: bool,
+    next_plex: i64,
     /// Image address -> when it may be requested again (after a failure).
     requested: HashMap<String, i64>,
     file: PathBuf,
@@ -367,6 +525,37 @@ impl Resume {
         true
     }
 
+    /// Picks up an edited widgets.json. A different server starts again from nothing.
+    pub fn set_plex(&mut self, config: Option<Plex>) -> bool {
+        if config == self.plex_config {
+            return false;
+        }
+        self.plex_config = config;
+        self.plex.clear();
+        self.plex_pending = false;
+        self.next_plex = 0;
+        true
+    }
+
+    /// True when the On Deck list changed.
+    pub fn accept_plex(&mut self, result: Result<Vec<Item>, String>, now: i64) -> bool {
+        self.plex_pending = false;
+        match result {
+            Ok(items) => {
+                self.next_plex = now + PLEX_REFRESH;
+                if items == self.plex {
+                    return false;
+                }
+                self.plex = items;
+                true
+            }
+            Err(_) => {
+                self.next_plex = now + PLEX_RETRY;
+                false
+            }
+        }
+    }
+
     pub fn accept_picks(&mut self, result: Result<Vec<Item>, String>, now: i64) {
         self.picks_pending = false;
         match result {
@@ -402,15 +591,25 @@ impl Resume {
             caption: caption.into(),
             image,
             progress: (item.duration > 0.).then(|| item.progress()),
-            params: json!({"open": {
-                "id": item.id, "title": item.title, "type": item.kind,
-                "domain": item.domain, "url": item.url, "img": item.image,
-            }}),
+            // PlxNative cannot be pointed at a video, so a Plex card just opens the app.
+            params: if item.source == Source::Plex {
+                json!({})
+            } else {
+                json!({"open": {
+                    "id": item.id, "title": item.title, "type": item.kind,
+                    "domain": item.domain, "url": item.url, "img": item.image,
+                }})
+            },
         }
     }
 
     fn resumed(&self) -> Vec<&Item> {
-        let mut all: Vec<&Item> = self.items.values().flatten().collect();
+        let mut all: Vec<&Item> = self
+            .items
+            .values()
+            .flatten()
+            .chain(self.plex.iter())
+            .collect();
         all.sort_by(|a, b| b.updated.cmp(&a.updated));
         all
     }
@@ -462,22 +661,35 @@ impl Resume {
             self.picks_pending = true;
             commands.push(Command::Picks);
         }
-        let wanted: Vec<String> = self
+        if let Some(config) = &self.plex_config
+            && !self.plex_pending
+            && now >= self.next_plex
+        {
+            self.plex_pending = true;
+            commands.push(Command::Plex(config.clone()));
+        }
+        let wanted: Vec<(String, Option<String>)> = self
             .resumed()
             .into_iter()
             .take(MAX_CARDS)
             .chain(self.kids_items())
-            .map(|item| item.image.clone())
-            .filter(|url| !url.is_empty())
+            .filter(|item| !item.image.is_empty())
+            .map(|item| {
+                let token = match (&self.plex_config, item.source) {
+                    (Some(plex), Source::Plex) => Some(plex.token.clone()),
+                    _ => None,
+                };
+                (item.image.clone(), token)
+            })
             .collect();
-        for url in wanted {
+        for (url, token) in wanted {
             let path = self.image_path(&url);
             if path.is_file() || self.requested.get(&url).is_some_and(|until| now < *until) {
                 continue;
             }
             // Far in the future until the download reports back, so it is not asked for twice.
             self.requested.insert(url.clone(), i64::MAX);
-            commands.push(Command::Image { url, path });
+            commands.push(Command::Image { url, path, token });
         }
         commands
     }

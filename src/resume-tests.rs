@@ -185,3 +185,171 @@ fn numeric_ids_are_accepted_as_the_apps_store_them() {
     value["id"] = json!(1.5);
     assert!(parse_item(Source::Jupiter, &value).is_none());
 }
+
+const TOKEN: &str = "abcdEFGH1234-_xyz";
+
+fn plex() -> Plex {
+    plex_from(Some("http://192.168.1.20:32400/"), Some(TOKEN)).unwrap()
+}
+
+#[test]
+fn the_plex_server_must_be_on_the_home_network_unless_it_is_https() {
+    assert_eq!(plex().base, "http://192.168.1.20:32400");
+    for ok in [
+        "http://10.0.0.5:32400",
+        "http://plexbox:32400",
+        "http://nas.local:32400",
+        "https://plex.example.com",
+        "https://plex.example.com:32400",
+    ] {
+        assert!(plex_from(Some(ok), Some(TOKEN)).is_some(), "{ok}");
+    }
+    for bad in [
+        "http://plex.example.com:32400",
+        "http://8.8.8.8:32400",
+        "http://user@192.168.1.20:32400",
+        "http://192.168.1.20:32400/library",
+        "ftp://192.168.1.20",
+        "192.168.1.20:32400",
+        "http://192.168.1.20:abc",
+    ] {
+        assert!(plex_from(Some(bad), Some(TOKEN)).is_none(), "{bad}");
+    }
+    assert!(plex_from(Some("http://192.168.1.20:32400"), None).is_none());
+    assert!(plex_from(Some("http://192.168.1.20:32400"), Some("short")).is_none());
+    assert!(
+        plex_from(
+            Some("http://192.168.1.20:32400"),
+            Some("has space in token!")
+        )
+        .is_none()
+    );
+    assert!(
+        !format!("{:?}", plex()).contains(TOKEN),
+        "the token must not reach a log"
+    );
+}
+
+fn on_deck() -> Value {
+    json!({"MediaContainer": {"Metadata": [
+        {"type": "episode", "ratingKey": "812", "title": "Pilot", "grandparentTitle": "Severance",
+         "parentIndex": 1, "index": 2, "viewOffset": 600000, "duration": 3000000,
+         "lastViewedAt": 1700000500, "thumb": "/library/metadata/812/thumb/1"},
+        {"type": "movie", "ratingKey": 77, "title": "Heat", "art": "/library/metadata/77/art/9 x",
+         "duration": 7200000, "lastViewedAt": 1700000900},
+        {"type": "track", "ratingKey": "1", "title": "A song"},
+        {"type": "movie", "ratingKey": "bad id", "title": "Nope"}
+    ]}})
+}
+
+#[test]
+fn on_deck_gives_episodes_and_movies_with_artwork_addresses() {
+    let items = parse_on_deck(&on_deck(), "http://192.168.1.20:32400").unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0].title, "Severance S1E2");
+    assert_eq!(items[0].position, 600.);
+    assert_eq!(items[0].duration, 3000.);
+    assert_eq!(items[0].updated, 1_700_000_500_000);
+    assert!(
+        items[0]
+            .image
+            .ends_with("&url=%2Flibrary%2Fmetadata%2F812%2Fthumb%2F1")
+    );
+    assert!(
+        items[0]
+            .image
+            .starts_with("http://192.168.1.20:32400/photo/:/transcode?")
+    );
+    assert_eq!(items[1].id, "77");
+    assert!(
+        items[1].image.ends_with("art%2F9%20x"),
+        "{}",
+        items[1].image
+    );
+    assert!(!items[0].image.contains(TOKEN));
+    assert!(parse_on_deck(&json!({}), "http://x").is_err());
+}
+
+#[test]
+fn plex_cards_join_the_watch_row_and_only_open_the_app() {
+    let mut resume = resume_in("plex");
+    resume.accept_items(
+        Source::Jupiter,
+        vec![parse_item(Source::Jupiter, &entry("j1", 1_700_000_600_000)).unwrap()],
+    );
+    assert!(resume.set_plex(Some(plex())));
+    assert!(
+        !resume.set_plex(Some(plex())),
+        "unchanged settings change nothing"
+    );
+    let items = parse_on_deck(&on_deck(), "http://192.168.1.20:32400").unwrap();
+    assert!(resume.accept_plex(Ok(items.clone()), 0));
+    assert!(
+        !resume.accept_plex(Ok(items), 1),
+        "same list, nothing to redraw"
+    );
+    let cards = resume.watch_cards();
+    let keys: Vec<_> = cards.iter().map(|c| c.key.as_str()).collect();
+    assert_eq!(
+        keys,
+        ["watch:plex:77", "watch:jupiter:j1", "watch:plex:812"]
+    );
+    assert_eq!(cards[0].caption, "Plex");
+    assert_eq!(cards[0].params, json!({}));
+    assert_eq!(cards[0].source.app_id(), "com.beb.plxnative");
+    assert!(
+        resume.kids_cards().is_empty(),
+        "Plex never reaches the kids row"
+    );
+    assert!(Source::parse("plex").is_none(), "apps cannot post as Plex");
+}
+
+#[test]
+fn plex_is_fetched_with_its_token_only_for_its_own_artwork() {
+    let mut resume = resume_in("plex-sync");
+    resume.set_plex(Some(plex()));
+    resume.accept_items(
+        Source::Jupiter,
+        vec![parse_item(Source::Jupiter, &entry("1", 5)).unwrap()],
+    );
+    let first = resume.sync(true, 0);
+    assert!(first.iter().any(|c| matches!(c, Command::Plex(_))));
+    assert!(
+        resume
+            .sync(true, 1)
+            .iter()
+            .all(|c| !matches!(c, Command::Plex(_)))
+    );
+    resume.accept_plex(
+        Ok(parse_on_deck(&on_deck(), "http://192.168.1.20:32400").unwrap()),
+        10,
+    );
+    for command in resume.sync(true, 11) {
+        if let Command::Image { url, token, .. } = command {
+            assert_eq!(
+                token.is_some(),
+                url.starts_with("http://192.168.1.20"),
+                "{url}"
+            );
+        }
+    }
+    assert!(
+        resume
+            .sync(true, 10 + PLEX_REFRESH)
+            .iter()
+            .any(|c| matches!(c, Command::Plex(_)))
+    );
+    resume.set_plex(None);
+    assert!(
+        resume
+            .watch_cards()
+            .iter()
+            .all(|c| c.source != Source::Plex)
+    );
+    assert!(
+        resume
+            .sync(true, i64::MAX / 2)
+            .iter()
+            .all(|c| !matches!(c, Command::Plex(_)))
+    );
+}

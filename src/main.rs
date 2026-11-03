@@ -539,6 +539,8 @@ fn widgets_tick(
 fn resume_tick(state: &mut State, service: &resume_service::Service, visible: bool) {
     let seconds = OffsetDateTime::now_utc().unix_timestamp();
     let home = visible && state.page == state::Page::Home;
+    let plex = state.widgets.config.plex();
+    state.dirty |= state.resume.set_plex(plex);
     for command in state.resume.sync(home, seconds) {
         service.send(command);
     }
@@ -555,6 +557,9 @@ fn resume_tick(state: &mut State, service: &resume_service::Service, visible: bo
             resume_service::Response::Picks(result) => {
                 state.resume.accept_picks(result, seconds);
                 state.dirty = true;
+            }
+            resume_service::Response::Plex(result) => {
+                state.dirty |= state.resume.accept_plex(result, seconds);
             }
             resume_service::Response::Image { url, ok } => {
                 state.resume.accept_image(&url, ok, seconds);

@@ -33,6 +33,10 @@ pub struct Config {
     pub timetable_url: Option<String>,
     /// Set to false to hide the train widget.
     pub show_trains: Option<bool>,
+    /// The Plex server (for example http://192.168.1.20:32400) and its token, for the Plex cards
+    /// under "Vaata edasi". The token is a secret and stays in this file.
+    pub plex_url: Option<String>,
+    pub plex_token: Option<String>,
 }
 
 fn https(url: &str) -> Option<&str> {
@@ -43,6 +47,10 @@ fn https(url: &str) -> Option<&str> {
 impl Config {
     pub fn calendar_url(&self) -> Option<&str> {
         self.calendar_url.as_deref().and_then(https)
+    }
+
+    pub fn plex(&self) -> Option<crate::resume::Plex> {
+        crate::resume::plex_from(self.plex_url.as_deref(), self.plex_token.as_deref())
     }
 
     pub fn timetable_url(&self) -> Option<&str> {

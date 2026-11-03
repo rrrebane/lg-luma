@@ -3,7 +3,7 @@
 //!   videos to (nothing else is accepted, and it is never reachable from the network);
 //! - a worker that fetches the kids recommendations and downloads card artwork, cut to size.
 
-use crate::resume::{self, Command, IMAGE_HEIGHT, IMAGE_WIDTH, Item, Source};
+use crate::resume::{self, Command, IMAGE_HEIGHT, IMAGE_WIDTH, Item, Plex, Source};
 use image::{
     ExtendedColorType, ImageReader, Limits, codecs::jpeg::JpegEncoder, imageops::FilterType,
 };
@@ -19,11 +19,13 @@ use std::{
 const MAX_BODY: usize = 128 * 1024;
 const PICKS_LIMIT: usize = 4 * 1024 * 1024;
 const IMAGE_LIMIT: usize = 3 * 1024 * 1024;
+const PLEX_LIMIT: usize = 2 * 1024 * 1024;
 
 pub enum Response {
     /// One app's list of unfinished videos.
     Items(Source, Vec<Item>),
     Picks(Result<Vec<Item>, String>),
+    Plex(Result<Vec<Item>, String>),
     Image {
         url: String,
         ok: bool,
@@ -66,11 +68,24 @@ impl Service {
                 .proxy(None)
                 .build()
                 .new_agent();
+            // The Plex server is on the home network and usually plain http. It only ever gets
+            // requests built from the validated server address, and is never followed elsewhere.
+            let lan = ureq::Agent::config_builder()
+                .timeout_global(Some(Duration::from_secs(20)))
+                .max_redirects(0)
+                .proxy(None)
+                .build()
+                .new_agent();
             for command in queue {
                 let response = match command {
                     Command::Picks => Response::Picks(fetch_picks(&agent)),
-                    Command::Image { url, path } => {
-                        let ok = fetch_image(&agent, &url, &path).is_ok();
+                    Command::Plex(plex) => Response::Plex(fetch_plex(&lan, &plex)),
+                    Command::Image { url, path, token } => {
+                        let ok = match token.as_deref() {
+                            Some(token) => fetch_image(&lan, &url, Some(token), &path),
+                            None => fetch_image(&agent, &url, None, &path),
+                        }
+                        .is_ok();
                         Response::Image { url, ok }
                     }
                 };
@@ -164,11 +179,16 @@ fn download(
     url: &str,
     accept: &str,
     limit: usize,
+    token: Option<&str>,
 ) -> Result<Vec<u8>, &'static str> {
-    let mut response = agent
+    let mut request = agent
         .get(url)
         .header("Accept", accept)
-        .header("User-Agent", "LumaNative")
+        .header("User-Agent", "LumaNative");
+    if let Some(token) = token {
+        request = request.header("X-Plex-Token", token);
+    }
+    let mut response = request
         .call()
         .map_err(|_| "The server could not be reached")?;
     if !response.status().is_success() {
@@ -188,14 +208,39 @@ fn download(
 }
 
 fn fetch_picks(agent: &ureq::Agent) -> Result<Vec<Item>, String> {
-    let bytes = download(agent, resume::PICKS_URL, "application/json", PICKS_LIMIT)?;
+    let bytes = download(
+        agent,
+        resume::PICKS_URL,
+        "application/json",
+        PICKS_LIMIT,
+        None,
+    )?;
     let value = serde_json::from_slice(&bytes).map_err(|_| "The page could not be read")?;
     resume::parse_picks(&value)
 }
 
+/// What Plex would continue or play next. The token goes in a header, never into the address.
+fn fetch_plex(agent: &ureq::Agent, plex: &Plex) -> Result<Vec<Item>, String> {
+    let url = format!("{}/library/onDeck", plex.base);
+    let bytes = download(
+        agent,
+        &url,
+        "application/json",
+        PLEX_LIMIT,
+        Some(&plex.token),
+    )?;
+    let value = serde_json::from_slice(&bytes).map_err(|_| "Plex could not be read")?;
+    resume::parse_on_deck(&value, &plex.base)
+}
+
 /// Downloads an image, cuts it to the card's 16:9 and stores it as a small JPEG at `path`.
-fn fetch_image(agent: &ureq::Agent, url: &str, path: &Path) -> Result<(), &'static str> {
-    let bytes = download(agent, url, "image/*", IMAGE_LIMIT)?;
+fn fetch_image(
+    agent: &ureq::Agent,
+    url: &str,
+    token: Option<&str>,
+    path: &Path,
+) -> Result<(), &'static str> {
+    let bytes = download(agent, url, "image/*", IMAGE_LIMIT, token)?;
     let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .map_err(|_| "The image could not be read")?;
