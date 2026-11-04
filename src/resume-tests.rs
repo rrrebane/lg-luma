@@ -63,22 +63,21 @@ fn progress_is_a_fraction_and_recommendations_have_none() {
 }
 
 #[test]
-fn watch_row_mixes_both_apps_newest_first_and_stops_at_five() {
+fn watch_row_holds_everything_but_lasteekraan_content_newest_first() {
     let mut resume = resume_in("watch");
-    let jupiter: Vec<_> = (0..4)
+    let mut items: Vec<_> = (0..6)
         .map(|n| parse_item(Source::Jupiter, &entry(&format!("j{n}"), 100 + n * 10)).unwrap())
         .collect();
-    let mut kids = entry("k1", 125);
-    kids["domain"] = json!("lasteekraan.err.ee");
-    let mut kids2 = entry("k2", 500);
-    kids2["domain"] = json!("lasteekraan.err.ee");
-    resume.accept_items(Source::Jupiter, jupiter);
+    // Lasteekraan's own videos, and one of its videos that Jupiter played.
+    let mut played_in_jupiter = entry("kj", 900);
+    played_in_jupiter["domain"] = json!("lasteekraan.err.ee");
+    items.push(parse_item(Source::Jupiter, &played_in_jupiter).unwrap());
+    let mut own = entry("k1", 800);
+    own["domain"] = json!("lasteekraan.err.ee");
+    resume.accept_items(Source::Jupiter, items);
     resume.accept_items(
         Source::Lasteekraan,
-        vec![
-            parse_item(Source::Lasteekraan, &kids).unwrap(),
-            parse_item(Source::Lasteekraan, &kids2).unwrap(),
-        ],
+        vec![parse_item(Source::Lasteekraan, &own).unwrap()],
     );
     let order: Vec<_> = resume
         .watch_cards()
@@ -88,13 +87,45 @@ fn watch_row_mixes_both_apps_newest_first_and_stops_at_five() {
     assert_eq!(
         order,
         [
-            "watch:lasteekraan:k2",
+            "watch:jupiter:j5",
+            "watch:jupiter:j4",
             "watch:jupiter:j3",
-            "watch:lasteekraan:k1",
             "watch:jupiter:j2",
             "watch:jupiter:j1"
-        ]
+        ],
+        "no Lasteekraan content, and stops at five"
     );
+}
+
+#[test]
+fn lasteekraan_videos_played_in_jupiter_go_to_the_kids_row_and_open_the_kids_app() {
+    let mut resume = resume_in("kids-from-jupiter");
+    let mut played_in_jupiter = entry("kj", 900);
+    played_in_jupiter["domain"] = json!("lasteekraan.err.ee");
+    let mut older_copy = entry("kj", 100);
+    older_copy["domain"] = json!("lasteekraan.err.ee");
+    resume.accept_items(
+        Source::Jupiter,
+        vec![
+            parse_item(Source::Jupiter, &played_in_jupiter).unwrap(),
+            parse_item(Source::Jupiter, &entry("j1", 950)).unwrap(),
+        ],
+    );
+    resume.accept_items(
+        Source::Lasteekraan,
+        vec![parse_item(Source::Lasteekraan, &older_copy).unwrap()],
+    );
+    let kids = resume.kids_cards();
+    assert_eq!(kids.len(), 1, "one card for a video started in both apps");
+    assert_eq!(kids[0].source, Source::Lasteekraan);
+    assert_eq!(kids[0].source.app_id(), "com.rebane.lasteekraan");
+    assert_eq!(kids[0].caption, "Lasteekraan");
+    assert_eq!(kids[0].key, "kids:lasteekraan:kj");
+    let watch = resume.watch_cards();
+    assert_eq!(watch.len(), 1);
+    assert_eq!(watch[0].key, "watch:jupiter:j1");
+    assert!(resume.find("kids:lasteekraan:kj").is_some());
+    assert!(resume.find("watch:jupiter:kj").is_none());
 }
 
 #[test]

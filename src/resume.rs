@@ -471,6 +471,14 @@ pub struct Resume {
     cache: PathBuf,
 }
 
+const KIDS_DOMAIN: &str = "lasteekraan.err.ee";
+
+/// Lasteekraan content. The channel decides, not the app that reported it: Jupiter plays
+/// Lasteekraan's videos too, and those belong in the kids row.
+fn is_kids(item: &Item) -> bool {
+    item.source == Source::Lasteekraan || item.domain == KIDS_DOMAIN
+}
+
 fn fnv(text: &str) -> u64 {
     text.bytes().fold(0xcbf29ce484222325, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
@@ -584,9 +592,14 @@ impl Resume {
         let image = (!item.image.is_empty())
             .then(|| self.image_path(&item.image))
             .filter(|path| path.is_file());
+        let source = if is_kids(item) {
+            Source::Lasteekraan
+        } else {
+            item.source
+        };
         Card {
-            key: format!("{row}:{}:{}", item.source.key(), item.id),
-            source: item.source,
+            key: format!("{row}:{}:{}", source.key(), item.id),
+            source,
             title: item.title.clone(),
             caption: caption.into(),
             image,
@@ -614,33 +627,47 @@ impl Resume {
         all
     }
 
-    /// The newest unfinished videos of every app.
-    pub fn watch_cards(&self) -> Vec<Card> {
-        self.resumed()
+    /// The newest unfinished videos of every app, except Lasteekraan's: those are in the kids row.
+    fn watch_items(&self) -> Vec<&Item> {
+        let mut items: Vec<&Item> = self
+            .resumed()
             .into_iter()
-            .take(MAX_CARDS)
+            .filter(|item| !is_kids(item))
+            .collect();
+        items.truncate(MAX_CARDS);
+        items
+    }
+
+    /// Unfinished Lasteekraan videos, whichever app was playing them, then its recommendations.
+    fn kids_items(&self) -> Vec<&Item> {
+        let mut items: Vec<&Item> = Vec::new();
+        // Newest first, so a video started in both apps keeps its latest position.
+        for item in self.resumed().into_iter().filter(|item| is_kids(item)) {
+            if !items.iter().any(|seen| seen.id == item.id) {
+                items.push(item);
+            }
+        }
+        for pick in &self.picks {
+            if !items.iter().any(|seen| seen.id == pick.id) {
+                items.push(pick);
+            }
+        }
+        items.truncate(MAX_CARDS);
+        items
+    }
+
+    pub fn watch_cards(&self) -> Vec<Card> {
+        self.watch_items()
+            .into_iter()
             .map(|item| self.card("watch", item, item.source.title()))
             .collect()
     }
 
-    /// Unfinished Lasteekraan videos first, then its recommendations.
     pub fn kids_cards(&self) -> Vec<Card> {
-        let started: Vec<&Item> = self
-            .resumed()
+        self.kids_items()
             .into_iter()
-            .filter(|item| item.source == Source::Lasteekraan)
-            .collect();
-        let mut cards: Vec<Card> = started
-            .iter()
             .map(|item| self.card("kids", item, Source::Lasteekraan.title()))
-            .collect();
-        for pick in &self.picks {
-            if !started.iter().any(|item| item.id == pick.id) {
-                cards.push(self.card("kids", pick, Source::Lasteekraan.title()));
-            }
-        }
-        cards.truncate(MAX_CARDS);
-        cards
+            .collect()
     }
 
     /// The card a control key stands for, as it is now.
@@ -669,9 +696,8 @@ impl Resume {
             commands.push(Command::Plex(config.clone()));
         }
         let wanted: Vec<(String, Option<String>)> = self
-            .resumed()
+            .watch_items()
             .into_iter()
-            .take(MAX_CARDS)
             .chain(self.kids_items())
             .filter(|item| !item.image.is_empty())
             .map(|item| {
@@ -692,17 +718,6 @@ impl Resume {
             commands.push(Command::Image { url, path, token });
         }
         commands
-    }
-
-    fn kids_items(&self) -> Vec<&Item> {
-        let mut items: Vec<&Item> = self
-            .resumed()
-            .into_iter()
-            .filter(|item| item.source == Source::Lasteekraan)
-            .collect();
-        items.extend(self.picks.iter());
-        items.truncate(MAX_CARDS);
-        items
     }
 }
 
